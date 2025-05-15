@@ -1,0 +1,105 @@
+{% extends 'base/baseIndex.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8 col-lg-6">
+            <div class="card bg-white shadow-lg">
+                <div class="card-header bg-success text-white text-center py-4">
+                    <h2 class="mb-0">
+                        <i class="fas fa-sign-in-alt me-2"></i> Login to Your Account
+                    </h2>
+                </div>
+                <div class="card-body p-4 p-md-5">
+                    {% if messages %}
+                        {% for message in messages %}
+                        <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags }}{% endif %} alert-dismissible fade show">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        </div>
+                        {% endfor %}
+                    {% endif %}
+                    
+                    <form method="post" novalidate>
+                        {% csrf_token %}
+                        
+                        <!-- Email/Username Field -->
+                        <div class="mb-4">
+                            <label for="id_username" class="form-label">
+                                <i class="fas fa-user me-2 text-success"></i> Email or Username
+                            </label>
+                            <input type="text" name="username_or_email" class="form-control form-control-lg" 
+                                        id="id_username" required placeholder="Enter your email or username">
+
+                        </div>
+                        
+                        <!-- Password Field -->
+                        <div class="mb-4">
+                            <label for="id_password" class="form-label">
+                                <i class="fas fa-lock me-2 text-success"></i> Password
+                            </label>
+                            <div class="input-group">
+                                <input type="password" name="password" 
+                                       class="form-control form-control-lg" 
+                                       id="id_password" required placeholder="Enter your password">
+                                <button class="btn btn-outline-secondary" type="button" 
+                                        id="togglePassword">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- Remember Me & Forgot Password -->
+                        <div class="d-flex justify-content-between mb-4">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="rememberMe" name="remember">
+                                <label class="form-check-label" for="rememberMe">
+                                    Remember me
+                                </label>
+                            </div>
+                            <a href="#" class="text-success text-decoration-none">
+                                Forgot password?
+                            </a>
+                        </div>
+                        
+                        <!-- Submit Button -->
+                        <div class="d-grid mb-3">
+                            <button type="submit" class="btn btn-success btn-lg">
+                                <i class="fas fa-sign-in-alt me-2"></i> Login
+                            </button>
+                        </div>
+                        
+                        <!-- Signup Link -->
+                        <div class="text-center">
+                            <p class="mb-0">Don't have an account? 
+                                <a href="{% url 'accounts:signup' %}" class="text-success fw-bold text-decoration-none">
+                                    Sign up now
+                                </a>
+                            </p>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Password toggle visibility
+document.getElementById('togglePassword').addEventListener('click', function() {
+    const passwordInput = document.getElementById('id_password');
+    const icon = this.querySelector('i');
+    
+    if (passwordInput.type === 'password') {
+        passwordInput.type = 'text';
+        icon.classList.remove('fa-eye');
+        icon.classList.add('fa-eye-slash');
+    } else {
+        passwordInput.type = 'password';
+        icon.classList.remove('fa-eye-slash');
+        icon.classList.add('fa-eye');
+    }
+});
+</script>
+{% endblock %}

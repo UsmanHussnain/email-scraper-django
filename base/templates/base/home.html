@@ -1,0 +1,65 @@
+{% extends 'base/baseIndex.html' %}
+
+{% block content %}
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <div class="card bg-white">
+                <div class="card-header bg-success text-white">
+                    <h2 class="mb-0 text-center">
+                        <i class="fas fa-file-excel me-2"></i>Upload Excel File
+                    </h2>
+                </div>
+                <div class="card-body p-4">
+                    <form method="POST" id="uploadForm" enctype="multipart/form-data" action="{% url 'upload_excel' %}">
+                        {% csrf_token %}
+                        <div class="mb-4">
+                            <label class="form-label fw-bold">Select Excel File:</label>
+                            <input type="file" class="form-control p-3 border-2" name="excel_file" required>
+                            <div class="form-text">File should contain websites in first column</div>
+                        </div>
+                        <div class="d-grid">
+                            <button type="submit" class="btn btn-success btn-lg">
+                                <i class="fas fa-upload me-2"></i>Upload & Extract Emails
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+    $(document).ready(function() {
+        $('#uploadForm').submit(function(e) {
+            e.preventDefault();
+            
+            // Show loader
+            $('#globalLoader').css('display', 'flex');
+            
+            // Submit form
+            $.ajax({
+                url: "{% url 'upload_excel' %}",
+                type: 'POST',
+                data: new FormData(this),
+                processData: false,
+                contentType: false,
+                success: function() {
+                    window.location.href = "{% url 'display_emails' %}";
+                },
+                error: function(xhr) {
+                    $('#globalLoader').hide();
+                    alert("Error: " + xhr.responseText);
+                }
+            });
+        });
+    });
+</script>
+<script>
+    $(document).ready(function() {
+        $('#uploadForm').submit(function() {
+            $('#globalLoader').css('display', 'flex');
+        });
+    });
+</script>
+{% endblock %}

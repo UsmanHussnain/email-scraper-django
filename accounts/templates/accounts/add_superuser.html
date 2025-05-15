@@ -1,0 +1,144 @@
+{% extends 'base/baseIndex.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8 col-lg-6">
+            <div class="card bg-white shadow-lg">
+                <div class="card-header bg-danger text-white text-center py-4">
+                    <h2 class="mb-0">
+                        <i class="fas fa-user-shield me-2"></i> Add New Superuser
+                    </h2>
+                </div>
+                <div class="card-body p-4 p-md-5">
+                    {% if messages %}
+                        {% for message in messages %}
+                        <div class="alert alert-{{ message.tags }} alert-dismissible fade show">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        </div>
+                        {% endfor %}
+                    {% endif %}
+                    
+                    <form method="post" novalidate>
+                        {% csrf_token %}
+                        <!-- Username Field -->
+                        <div class="mb-4">
+                            <label for="id_username" class="form-label">
+                                <i class="fas fa-user me-2 text-danger"></i> Username
+                            </label>
+                            <input type="text" name="username" class="form-control form-control-lg" 
+                                   id="id_username" required placeholder="Choose a username">
+                            <div class="invalid-feedback">
+                                Please choose a username.
+                            </div>
+                        </div>
+                        
+                        <!-- Email Field -->
+                        <div class="mb-4">
+                            <label for="id_email" class="form-label">
+                                <i class="fas fa-envelope me-2 text-danger"></i> Email Address
+                            </label>
+                            <input type="email" name="email" class="form-control form-control-lg" 
+                                   id="id_email" required placeholder="Enter your email">
+                            <div class="invalid-feedback">
+                                Please provide a valid email.
+                            </div>
+                        </div>
+                        
+                        <!-- First Name -->
+                        <div class="mb-4">
+                            <label for="id_first_name" class="form-label">
+                                <i class="fas fa-user me-2 text-danger"></i> First Name
+                            </label>
+                            <input type="text" name="first_name" class="form-control form-control-lg" 
+                                   id="id_first_name" required placeholder="Enter your first name">
+                            <div class="invalid-feedback">
+                                Please provide your first name.
+                            </div>
+                        </div>
+                        
+                        <!-- Last Name -->
+                        <div class="mb-4">
+                            <label for="id_last_name" class="form-label">
+                                <i class="fas fa-user me-2 text-danger"></i> Last Name
+                            </label>
+                            <input type="text" name="last_name" class="form-control form-control-lg" 
+                                   id="id_last_name" required placeholder="Enter your last name">
+                            <div class="invalid-feedback">
+                                Please provide your last name.
+                            </div>
+                        </div>
+                        
+                        <!-- Password Field -->
+                        <div class="mb-4">
+                            <label for="id_password1" class="form-label">
+                                <i class="fas fa-lock me-2 text-danger"></i> Password
+                            </label>
+                            <div class="input-group">
+                                <input type="password" name="password1" 
+                                       class="form-control form-control-lg" 
+                                       id="id_password1" required placeholder="Create password">
+                                <button class="btn btn-outline-secondary" type="button" 
+                                        id="togglePassword1">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                            </div>
+                            <div class="form-text">
+                                Must be at least 8 characters with numbers and symbols
+                            </div>
+                        </div>
+                        
+                        <!-- Confirm Password -->
+                        <div class="mb-4">
+                            <label for="id_password2" class="form-label">
+                                <i class="fas fa-lock me-2 text-danger"></i> Confirm Password
+                            </label>
+                            <div class="input-group">
+                                <input type="password" name="password2" 
+                                       class="form-control form-control-lg" 
+                                       id="id_password2" required placeholder="Confirm password">
+                                <button class="btn btn-outline-secondary" type="button" 
+                                        id="togglePassword2">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                            </div>
+                            <div class="invalid-feedback">
+                                Passwords must match.
+                            </div>
+                        </div>
+                        
+                        <!-- Submit Button -->
+                        <div class="d-grid mb-3">
+                            <button type="submit" class="btn btn-danger btn-lg">
+                                <i class="fas fa-user-plus me-2"></i> Create Superuser
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Password toggle visibility
+['togglePassword1', 'togglePassword2'].forEach(function(id) {
+    document.getElementById(id).addEventListener('click', function() {
+        const passwordInput = document.getElementById(id.replace('toggle', 'id_'));
+        const icon = this.querySelector('i');
+        
+        if (passwordInput.type === 'password') {
+            passwordInput.type = 'text';
+            icon.classList.remove('fa-eye');
+            icon.classList.add('fa-eye-slash');
+        } else {
+            passwordInput.type = 'password';
+            icon.classList.remove('fa-eye-slash');
+            icon.classList.add('fa-eye');
+        }
+    });
+});
+</script>
+{% endblock %}
