@@ -96,10 +96,7 @@ async def extract_emails(url):
     domain_age = get_domain_age(domain)
     
     # First try with requests (faster)
-    emails = fetch_with_requests(url)
-    if not emails:
-        # Fall back to Playwright if requests fails
-        emails = await fetch_with_playwright(url)
+    emails = fetch_with_requests(url) or await fetch_with_playwright(url)
     
     return url, ', '.join(emails) if emails else "No email found", domain_age
 
