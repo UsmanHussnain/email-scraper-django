@@ -1,3 +1,4 @@
+# views.py (updated)
 import os
 import asyncio
 from django.shortcuts import render, redirect
@@ -5,7 +6,7 @@ from django.contrib.auth.decorators import login_required
 from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 from .models import UploadedFile
-import pandas as pd # type: ignore
+import pandas as pd
 from .email_scraper import process_excel
 
 @login_required
@@ -53,6 +54,8 @@ def display_emails(request):
             df.rename(columns={df.columns[0]: 'website'}, inplace=True)
         if 'emails' not in df.columns:
             df['emails'] = 'No Email Found'
+        if 'domain age' not in df.columns:
+            df['domain age'] = 'N/A'
 
         # Prepare data for template
         email_list = []
@@ -63,6 +66,7 @@ def display_emails(request):
         for _, row in df.iterrows():
             website = row['website']
             emails = row['emails']
+            domain_age = row.get('domain age', 'N/A')
             
             # Skip empty website entries
             if pd.isna(website) or str(website).strip() == '':
@@ -81,9 +85,14 @@ def display_emails(request):
             else:
                 email_found_count += 1
             
+            # Process domain age
+            if pd.isna(domain_age) or str(domain_age).strip() == '':
+                domain_age = 'N/A'
+            
             email_list.append({
                 'website': website,
                 'emails': str(emails).strip(),
+                'domain_age': str(domain_age).strip(),
                 'original_website': row['website']
             })
 

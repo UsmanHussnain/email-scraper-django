@@ -26,6 +26,7 @@
                                     <tr>
                                         <th class="text-center"><i class="fas fa-globe me-2"></i>Website</th>
                                         <th class="text-center"><i class="fas fa-at me-2"></i>Emails</th>
+                                        <th class="text-center"><i class="fas fa-calendar me-2"></i>Domain Age</th>
                                         {% if user.is_superuser %}
                                             <th class="text-center"><i class="fas fa-edit me-2"></i>Actions</th>
                                         {% endif %}
@@ -42,6 +43,14 @@
                                             </td>
                                             <td class="text-center font-monospace email-cell">
                                                 {{ row.emails|linebreaksbr }}
+                                            </td>
+                                            
+                                            <td class="text-center">
+                                                {% if row.domain_age and row.domain_age != 'N/A' %}
+                                                    {{ row.domain_age }}
+                                                {% else %}
+                                                    <span class="text-muted">N/A</span>
+                                                {% endif %}
                                             </td>
                                             {% if user.is_superuser %}
                                                 <td class="text-center">
@@ -75,10 +84,12 @@
                     <a href="{% url 'upload_excel' %}" class="btn btn-success">
                         <i class="fas fa-arrow-left me-2"></i>Upload New File
                     </a>
+                    {% if user.is_superuser%}
                     {% if download_url %}
                         <a href="{{ download_url }}" download class="btn btn-primary">
                             <i class="fas fa-file-download me-2"></i>Download Results
                         </a>
+                    {% endif %}
                     {% endif %}
                 </div>
             </div>
@@ -189,7 +200,7 @@ $(document).ready(function() {
                 if (response.status === 'success') {
                     // Find and update the row
                     const website = $('#editWebsite').val();
-                    const row = $(`tr[data-website="${website}"]`);
+                    const row = $(`tr[data-website="${website}"]');
                     
                     row.find('.email-cell').text(displayEmail);
                     row.find('.edit-email-btn').data('current-email', displayEmail);
@@ -232,7 +243,7 @@ $(document).ready(function() {
             success: function(response) {
                 if (response.status === 'success') {
                     // Find and update the row
-                    const row = $(`tr[data-website="${website}"]`);
+                    const row = $(`tr[data-website="${website}"]');
                     
                     row.find('.email-cell').text('No Email Found');
                     row.find('.edit-email-btn').data('current-email', 'No Email Found');
