@@ -3,7 +3,7 @@
 {% block content %}
 <div class="container py-5">
     <div class="row justify-content-center">
-        <div class="col-lg-10">
+        <div class="col-lg-12">
             <div class="card bg-white">
                 <div class="card-header bg-success text-white">
                     <h2 class="mb-0">
@@ -14,9 +14,20 @@
                 <div class="card-body">
                     <!-- Email Statistics -->
                     <div class="alert alert-info text-center mb-4">
-                        <strong>Total Websites:</strong> {{ total_count }} <br>
-                        <strong>Emails Found:</strong> {{ email_found_count }} <br>
-                        <strong>No Emails Found:</strong> {{ no_email_count }} <br>
+                        <div class="row">
+                            <div class="col-md-3">
+                                <strong>Total Websites:</strong> <span id="total_count">{{ total_count }}</span>
+                            </div>
+                            <div class="col-md-3">
+                                <strong>Emails Found:</strong> <span id="email_found_count">{{ email_found_count }}</span>
+                            </div>
+                            <div class="col-md-3">
+                                <strong>Contact Pages:</strong> <span id="contact_page_count">{{ contact_page_count }}</span>
+                            </div>
+                            <div class="col-md-3">
+                                <strong>No Contact:</strong> <span id="no_contact_count">{{ no_contact_count }}</span>
+                            </div>
+                        </div>
                     </div>
                     
                     {% if email_list %}
@@ -24,6 +35,7 @@
                             <table class="table table-hover align-middle mb-0">
                                 <thead class="table-success">
                                     <tr>
+                                        <th class="text-center"><i class="fas fa me-2"></i>#</th>
                                         <th class="text-center"><i class="fas fa-globe me-2"></i>Website</th>
                                         <th class="text-center"><i class="fas fa-at me-2"></i>Emails</th>
                                         <th class="text-center"><i class="fas fa-calendar me-2"></i>Domain Age</th>
@@ -36,13 +48,22 @@
                                     {% for row in email_list %}
                                         <tr data-website="{{ row.original_website }}">
                                             <td class="text-center">
+                                                {{ forloop.counter }}
+                                            </td>
+                                            <td class="text-center">
                                                 <a href="{{ row.website }}" target="_blank" class="text-decoration-none">
                                                     {{ row.website|truncatechars:30 }}
                                                     <i class="fas fa-external-link-alt ms-1 text-info"></i>
                                                 </a>
                                             </td>
                                             <td class="text-center font-monospace email-cell">
-                                                {{ row.emails|linebreaksbr }}
+                                                {% if row.is_contact_url %}
+                                                    <a href="{{ row.emails }}" target="_blank" class="text-decoration-none">
+                                                        Contact Page <i class="fas fa-external-link-alt ms-1 text-info"></i>
+                                                    </a>
+                                                {% else %}
+                                                    {{ row.emails|linebreaksbr }}
+                                                {% endif %}
                                             </td>
                                             
                                             <td class="text-center">
@@ -62,7 +83,7 @@
                                                         </button>
                                                         <button class="btn btn-outline-danger delete-email-btn" 
                                                                 data-website="{{ row.original_website }}"
-                                                                {% if row.emails == 'No Email Found' %}disabled{% endif %}>
+                                                                {% if row.emails == 'No Email No Contact' %}disabled{% endif %}>
                                                             <i class="fas fa-trash-alt"></i>
                                                         </button>
                                                     </div>
@@ -84,7 +105,7 @@
                     <a href="{% url 'upload_excel' %}" class="btn btn-success">
                         <i class="fas fa-arrow-left me-2"></i>Upload New File
                     </a>
-                    {% if user.is_superuser%}
+                    {% if user.is_superuser %}
                     {% if download_url %}
                         <a href="{{ download_url }}" download class="btn btn-primary">
                             <i class="fas fa-file-download me-2"></i>Download Results
@@ -111,7 +132,7 @@
                     <input type="hidden" id="editFilename" name="filename" value="{{ filename }}">
                     <div class="mb-3">
                         <label for="editEmail" class="form-label">Email Address</label>
-                        <input type="email" class="form-control" id="editEmail" name="email" required>
+                        <input type="text" class="form-control" id="editEmail" name="email" required>
                     </div>
                 </form>
             </div>
@@ -157,132 +178,136 @@
 
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script>
-$(document).ready(function() {
-    // Initialize modals and toast
-    const emailEditModal = new bootstrap.Modal(document.getElementById('emailEditModal'));
-    const deleteConfirmModal = new bootstrap.Modal(document.getElementById('deleteConfirmModal'));
-    const toastLiveExample = document.getElementById('liveToast');
-    const toast = new bootstrap.Toast(toastLiveExample);
+    $(document).ready(function() {
+        // Initialize modals and toast
+        const emailEditModal = new bootstrap.Modal(document.getElementById('emailEditModal'));
+        const deleteConfirmModal = new bootstrap.Modal(document.getElementById('deleteConfirmModal'));
+        const toastLiveExample = document.getElementById('liveToast');
+        const toast = new bootstrap.Toast(toastLiveExample);
+        
+        // Update stats counters with full stats
+        function updateStats(fullStats) {
+            $('#total_count').text(fullStats.total || 0);
+            $('#email_found_count').text(fullStats.emails_found || 0);
+            $('#contact_page_count').text(fullStats.contact_pages || 0);
+            $('#no_contact_count').text(fullStats.no_contact || 0);
+        }
     
-    // Edit button click handler
-    $(document).on('click', '.edit-email-btn', function() {
-        const website = $(this).data('website');
-        const currentEmail = $(this).data('current-email');
-        
-        $('#editWebsite').val(website);
-        $('#editEmail').val(currentEmail === 'No Email Found' ? '' : currentEmail);
-        
-        emailEditModal.show();
-    });
-
-    // Delete button click handler
-    $(document).on('click', '.delete-email-btn', function() {
-        const website = $(this).data('website');
-        $('#deleteWebsite').val(website);
-        
-        deleteConfirmModal.show();
-    });
-
-    // Save email changes
-    $('#saveEmailBtn').click(function() {
-        const formData = $('#emailEditForm').serialize();
-        const newEmail = $('#editEmail').val().trim();
-        const displayEmail = newEmail || 'No Email Found';
-        
-        $.ajax({
-            url: "{% url 'update_email' %}",
-            type: 'POST',
-            data: formData,
-            headers: {
-                'X-CSRFToken': '{{ csrf_token }}'
-            },
-            success: function(response) {
-                if (response.status === 'success') {
-                    // Find and update the row
-                    const website = $('#editWebsite').val();
-                    const row = $(`tr[data-website="${website}"]');
-                    
-                    row.find('.email-cell').text(displayEmail);
-                    row.find('.edit-email-btn').data('current-email', displayEmail);
-                    row.find('.delete-email-btn').prop('disabled', displayEmail === 'No Email Found');
-                    
-                    emailEditModal.hide();
-                    showToast('Email updated successfully!', 'success');
-                } else {
-                    showToast('Error: ' + response.message, 'danger');
-                }
-            },
-            error: function(xhr) {
-                let errorMsg = 'Error updating email';
-                try {
-                    const response = JSON.parse(xhr.responseText);
-                    if (response.message) {
-                        errorMsg += ': ' + response.message;
-                    }
-                } catch (e) {
-                    errorMsg += '. Please try again.';
-                }
-                showToast(errorMsg, 'danger');
-            }
+        // Edit button click handler
+        $(document).on('click', '.edit-email-btn', function() {
+            const website = $(this).data('website');
+            const currentEmail = $(this).data('current-email');
+            
+            $('#editWebsite').val(website);
+            $('#editEmail').val(currentEmail === 'No Email No Contact' ? '' : currentEmail);
+            
+            emailEditModal.show();
         });
-    });
-
-    // Confirm delete email
-    $('#confirmDeleteBtn').click(function() {
-        const website = $('#deleteWebsite').val();
-        
-        $.ajax({
-            url: "{% url 'update_email' %}",
-            type: 'POST',
-            data: {
-                'website': website,
-                'filename': '{{ filename }}',
-                'action': 'delete',
-                'csrfmiddlewaretoken': '{{ csrf_token }}'
-            },
-            success: function(response) {
-                if (response.status === 'success') {
-                    // Find and update the row
-                    const row = $(`tr[data-website="${website}"]');
-                    
-                    row.find('.email-cell').text('No Email Found');
-                    row.find('.edit-email-btn').data('current-email', 'No Email Found');
-                    row.find('.delete-email-btn').prop('disabled', true);
-                    
-                    deleteConfirmModal.hide();
-                    showToast('Email deleted successfully!', 'success');
-                } else {
-                    showToast('Error: ' + response.message, 'danger');
-                }
-            },
-            error: function(xhr) {
-                let errorMsg = 'Error deleting email';
-                try {
-                    const response = JSON.parse(xhr.responseText);
-                    if (response.message) {
-                        errorMsg += ': ' + response.message;
-                    }
-                } catch (e) {
-                    errorMsg += '. Please try again.';
-                }
-                showToast(errorMsg, 'danger');
-            }
+    
+        // Delete button click handler
+        $(document).on('click', '.delete-email-btn', function() {
+            const website = $(this).data('website');
+            $('#deleteWebsite').val(website);
+            
+            deleteConfirmModal.show();
         });
+    
+        // Save email changes
+        $('#saveEmailBtn').click(function() {
+            const formData = $('#emailEditForm').serialize();
+            const newEmail = $('#editEmail').val().trim();
+            const displayEmail = newEmail || 'No Email No Contact';
+            const isContactUrl = displayEmail.startsWith('http');
+            
+            $.ajax({
+                url: "{% url 'update_email' %}",
+                type: 'POST',
+                data: formData,
+                headers: {
+                    'X-CSRFToken': '{{ csrf_token }}'
+                },
+                success: function(response) {
+                    if (response.status === 'success') {
+                        // Find and update the row
+                        const website = $('#editWebsite').val();
+                        const row = $(`tr[data-website="${website}"]`);
+                        
+                        if (isContactUrl) {
+                            row.find('.email-cell').html(
+                                `<a href="${displayEmail}" target="_blank" class="text-decoration-none">
+                                    Contact Page <i class="fas fa-external-link-alt ms-1 text-info"></i>
+                                </a>`
+                            );
+                        } else {
+                            row.find('.email-cell').text(displayEmail);
+                        }
+                        
+                        row.find('.edit-email-btn').data('current-email', displayEmail);
+                        row.find('.delete-email-btn').prop('disabled', displayEmail === 'No Email No Contact');
+                        
+                        // Update stats with full stats from response
+                        if (response.full_stats) {
+                            updateStats(response.full_stats);
+                        }
+                        
+                        emailEditModal.hide();
+                        showToast('Updated successfully!', 'success');
+                    } else {
+                        showToast('Error: ' + response.message, 'danger');
+                    }
+                },
+                error: function(xhr) {
+                    showToast('Error updating email. Please try again.', 'danger');
+                }
+            });
+        });
+    
+        // Confirm delete email
+        $('#confirmDeleteBtn').click(function() {
+            const website = $('#deleteWebsite').val();
+            
+            $.ajax({
+                url: "{% url 'update_email' %}",
+                type: 'POST',
+                data: {
+                    'website': website,
+                    'filename': '{{ filename }}',
+                    'action': 'delete',
+                    'csrfmiddlewaretoken': '{{ csrf_token }}'
+                },
+                success: function(response) {
+                    if (response.status === 'success') {
+                        // Find and update the row
+                        const row = $(`tr[data-website="${website}"]`);
+                        
+                        row.find('.email-cell').text('No Email No Contact');
+                        row.find('.edit-email-btn').data('current-email', 'No Email No Contact');
+                        row.find('.delete-email-btn').prop('disabled', true);
+                        
+                        // Update stats with full stats from response
+                        if (response.full_stats) {
+                            updateStats(response.full_stats);
+                        }
+                        
+                        deleteConfirmModal.hide();
+                        showToast('Deleted successfully!', 'success');
+                    } else {
+                        showToast('Error: ' + response.message, 'danger');
+                    }
+                },
+                error: function(xhr) {
+                    showToast('Error deleting email. Please try again.', 'danger');
+                }
+            });
+        });
+    
+        // Helper function to show toast notifications
+        function showToast(message, type) {
+            const toastBody = $('.toast-body');
+            toastBody.text(message);
+            toastBody.removeClass().addClass('toast-body bg-' + type);
+            toast.show();
+        }
     });
-
-    // Helper function to show toast notifications
-    function showToast(message, type) {
-        const toastBody = $('.toast-body');
-        const toastHeader = $('.toast-header');
-        
-        // Set message and style
-        toastBody.text(message);
-        toastBody.removeClass('bg-success bg-danger bg-warning bg-info');
-        toastBody.addClass('bg-' + type);
-        
-        // Show the toast
-        toast.show();
-    }
-});
 </script>
 {% endblock %}

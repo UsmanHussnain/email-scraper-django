@@ -1,4 +1,3 @@
-# views.py (updated)
 import os
 import asyncio
 from django.shortcuts import render, redirect
@@ -13,104 +12,82 @@ from .email_scraper import process_excel
 def upload_excel(request):
     if request.method == 'POST' and 'excel_file' in request.FILES:
         excel_file = request.FILES['excel_file']
-        
-        # Create media directory if it doesn't exist
-        os.makedirs(settings.MEDIA_ROOT, exist_ok=True)
-        
-        # Save the file
         file_path = os.path.join(settings.MEDIA_ROOT, excel_file.name)
+        os.makedirs(settings.MEDIA_ROOT, exist_ok=True)
         with open(file_path, 'wb+') as destination:
             for chunk in excel_file.chunks():
                 destination.write(chunk)
 
-        # Save to database
         uploaded_file = UploadedFile.objects.create(file=excel_file.name)
-        
-        # Process the file
         try:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            loop.run_until_complete(process_excel(file_path))
+            processed_file, stats = loop.run_until_complete(process_excel(file_path))
+            if processed_file:
+                return redirect('display_emails')
+            else:
+                return render(request, 'base/home.html', {'error': 'Failed to process the Excel file. Please check the file format or try again.'})
+        except Exception as e:
+            print(f"Processing error: {e}")
+            return render(request, 'base/home.html', {'error': f'Error processing file: {str(e)}'})
         finally:
             loop.close()
-        
-        return redirect('display_emails')
-    
     return render(request, 'base/home.html')
 
 @login_required
 def display_emails(request):
     try:
-        # Get the most recent file
         latest_file = UploadedFile.objects.latest('uploaded_at')
         file_path = os.path.join(settings.MEDIA_ROOT, latest_file.file.name)
-        
-        # Read the Excel file
         df = pd.read_excel(file_path)
+        df.columns = [col.strip().lower() for col in df.columns]
 
-        # Standardize column names
-        df.columns = df.columns.str.strip().str.lower()
-        if 'website' not in df.columns:
-            df.rename(columns={df.columns[0]: 'website'}, inplace=True)
-        if 'emails' not in df.columns:
-            df['emails'] = 'No Email Found'
-        if 'domain age' not in df.columns:
-            df['domain age'] = 'N/A'
+        # Calculate stats from the DataFrame
+        stats = {
+            'total': len(df),
+            'emails_found': 0,
+            'contact_pages': 0,
+            'no_contact': 0
+        }
 
-        # Prepare data for template
-        email_list = []
-        total_count = 0
-        email_found_count = 0
-        no_email_count = 0
-        
         for _, row in df.iterrows():
-            website = row['website']
-            emails = row['emails']
-            domain_age = row.get('domain age', 'N/A')
-            
-            # Skip empty website entries
-            if pd.isna(website) or str(website).strip() == '':
-                continue
-            
-            # Ensure proper URL formatting
-            if not str(website).startswith(('http://', 'https://')):
-                website = f'http://{str(website).strip()}'
-                
-            total_count += 1
-            
-            # Process emails
-            if pd.isna(emails) or str(emails).strip() == '' or str(emails).strip().lower() == 'no email found':
-                no_email_count += 1
-                emails = 'No Email Found'
+            emails = str(row.get('emails', 'No Email No Contact')).strip()
+            if '@' in emails:
+                stats['emails_found'] += 1
+            elif 'http' in emails.lower():
+                stats['contact_pages'] += 1
             else:
-                email_found_count += 1
-            
-            # Process domain age
-            if pd.isna(domain_age) or str(domain_age).strip() == '':
-                domain_age = 'N/A'
-            
-            email_list.append({
-                'website': website,
-                'emails': str(emails).strip(),
-                'domain_age': str(domain_age).strip(),
-                'original_website': row['website']
-            })
+                stats['no_contact'] += 1
 
-        # Generate download URL
+        email_list = []
+        for _, row in df.iterrows():
+            website = row.get('website', '').strip()
+            emails = row.get('emails', 'No Email No Contact').strip()
+            domain_age = row.get('domain age', 'N/A').strip()
+            if website:
+                if not website.startswith(('http://', 'https://')):
+                    website = f'http://{website}'
+                email_list.append({
+                    'website': website,
+                    'emails': emails,
+                    'domain_age': domain_age,
+                    'original_website': row['website'],
+                    'is_contact_url': 'http' in emails.lower()
+                })
+
         download_url = os.path.join(settings.MEDIA_URL, latest_file.file.name).replace('\\', '/')
-        
         context = {
             "email_list": email_list,
             "download_url": download_url,
-            "total_count": total_count,
-            "email_found_count": email_found_count,
-            "no_email_count": no_email_count,
+            "total_count": stats['total'],
+            "email_found_count": stats['emails_found'],
+            "contact_page_count": stats['contact_pages'],
+            "no_contact_count": stats['no_contact'],
             "filename": latest_file.file.name
         }
         return render(request, 'base/email_display.html', context)
-
     except Exception as e:
-        print(f"Error displaying emails: {e}")
+        print(f"Display error: {e}")
         return render(request, 'base/email_display.html', {"error": str(e)})
 
 @login_required
@@ -136,15 +113,66 @@ def update_email(request):
             if not mask.any():
                 return JsonResponse({'status': 'error', 'message': 'Website not found'}, status=404)
             
+            # Get current values for stats calculation
+            current_value = df.loc[mask, 'emails'].iloc[0]
+            was_email = '@' in str(current_value)
+            was_contact = not was_email and any(
+                x in str(current_value).lower() 
+                for x in ['http://', 'https://']
+            )
+            
             if action == 'delete':
-                df.loc[mask, 'emails'] = 'No Email Found'
+                new_value = 'No Email No Contact'
+                df.loc[mask, 'emails'] = new_value
             else:
-                df.loc[mask, 'emails'] = new_email
+                new_value = new_email
+                df.loc[mask, 'emails'] = new_value
             
             # Save the updated file
             df.to_excel(file_path, index=False)
             
-            return JsonResponse({'status': 'success'})
+            # Calculate stats changes
+            is_email = '@' in new_value
+            is_contact = not is_email and any(
+                x in new_value.lower() 
+                for x in ['http://', 'https://']
+            )
+            
+            stats_update = {
+                'emails_found': 0,
+                'contact_pages': 0,
+                'no_contact': 0
+            }
+            
+            if was_email and not is_email:
+                stats_update['emails_found'] = -1
+            elif not was_email and is_email:
+                stats_update['emails_found'] = 1
+            
+            if was_contact and not is_contact:
+                stats_update['contact_pages'] = -1
+            elif not was_contact and is_contact:
+                stats_update['contact_pages'] = 1
+            
+            if (not was_email and not was_contact) and (is_email or is_contact):
+                stats_update['no_contact'] = -1
+            elif (not is_email and not is_contact) and (was_email or was_contact):
+                stats_update['no_contact'] = 1
+            
+            # Recalculate full stats from the updated file
+            df = pd.read_excel(file_path)
+            full_stats = {
+                'total': len(df),
+                'emails_found': sum(1 for _, row in df.iterrows() if '@' in str(row.get('emails', ''))),
+                'contact_pages': sum(1 for _, row in df.iterrows() if 'http' in str(row.get('emails', '')).lower() and '@' not in str(row.get('emails', ''))),
+                'no_contact': sum(1 for _, row in df.iterrows() if str(row.get('emails', '')).strip() == 'No Email No Contact')
+            }
+
+            return JsonResponse({
+                'status': 'success',
+                'stats_update': stats_update,
+                'full_stats': full_stats
+            })
             
         except Exception as e:
             return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
