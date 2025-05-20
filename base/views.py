@@ -5,7 +5,7 @@ from django.contrib.auth.decorators import login_required
 from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 from .models import UploadedFile
-import pandas as pd
+import pandas as pd # type: ignore
 from .email_scraper import process_excel
 
 @login_required

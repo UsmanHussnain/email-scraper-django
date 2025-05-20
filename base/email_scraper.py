@@ -14,6 +14,7 @@ EMAIL_PATTERN = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
 TIMEOUT = 100000  # 100 seconds
 MAX_WORKERS = multiprocessing.cpu_count() * 2
 CONTACT_KEYWORDS = ['contact', 'about', 'support', 'help', 'mailto', 'reach', 'connect']
+CONTACT_PAGE = [ 'contact', 'contact-us', 'contactus']
 
 def is_valid_email(email):
     """Validate email to exclude dummy, test, or file-like patterns."""
@@ -70,42 +71,62 @@ def get_domain_age(domain):
         print(f"WHOIS error for {domain}: {e}")
         return "Unknown"
 
-async def find_contact_page(page, base_url):
-    """Find contact page URL using Playwright."""
+async def find_clickable_contact_links(page, base_url):
+    """Find clickable contact links on the page with improved logic."""
     try:
-        # Check common contact page paths directly
-        for path in ['contact', 'contact-us', 'contactus', 'contact_us']:
-            contact_url = urljoin(base_url, path)
-            try:
-                response = await page.goto(contact_url, timeout=5000)
-                if response.status == 200:
-                    return contact_url
-            except:
-                continue
-
-        # Scan all links for contact keywords
+        # Get all links on the page
         links = await page.query_selector_all('a')
-        contact_urls = []
+        contact_links = []
         
         for link in links:
             try:
                 href = await link.get_attribute('href')
-                if href and any(keyword in href.lower() for keyword in CONTACT_KEYWORDS):
-                    if href.startswith('mailto:'):
+                text = await link.text_content()
+                
+                if not href:
+                    continue
+                    
+                # Check if link text or href contains contact keywords
+                text_matches = any(keyword in (text or '').lower() for keyword in CONTACT_PAGE)
+                href_matches = any(keyword in href.lower() for keyword in CONTACT_PAGE)
+                
+                if text_matches or href_matches:
+                    # Skip mailto links and non-web URLs
+                    if href.startswith(('mailto:', 'tel:', 'javascript:', '#')):
                         continue
+                        
+                    # Make absolute URL if relative
                     if not href.startswith(('http://', 'https://')):
                         href = urljoin(base_url, href)
-                    contact_urls.append(href)
-            except:
+                    
+                    # Verify the link is not the same as current page
+                    if href != base_url and href != base_url + '/':
+                        contact_links.append(href)
+                        
+            except Exception as e:
+                print(f"Error processing link: {e}")
                 continue
-
-        return contact_urls[0] if contact_urls else None
+        
+        # Return unique links only
+        return list(set(contact_links))
+        
     except Exception as e:
-        print(f"Contact page finding error: {e}")
+        print(f"Error finding contact links: {e}")
+        return []
+
+async def scrape_contact_page(page, contact_url):
+    """Scrape a contact page for emails."""
+    try:
+        await page.goto(contact_url, timeout=TIMEOUT/2, wait_until="domcontentloaded")
+        content = await page.content()
+        emails = extract_emails_from_text(content)
+        return list(emails) if emails else None
+    except Exception as e:
+        print(f"Error scraping contact page {contact_url}: {e}")
         return None
 
 async def fetch_with_playwright(url):
-    """Fetch website content using Playwright with contact page fallback."""
+    """Fetch website content using Playwright with enhanced contact link detection."""
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
@@ -121,29 +142,29 @@ async def fetch_with_playwright(url):
                 content = await page.content()
                 emails = extract_emails_from_text(content)
                 
-                # If no emails, check common subpages
+                # If no emails found, check contact links
+                contact_urls = []
                 if not emails:
-                    links = await page.query_selector_all('a')
-                    for link in links:
-                        href = await link.get_attribute('href')
-                        if href and any(keyword in href.lower() for keyword in CONTACT_KEYWORDS):
-                            try:
-                                if not href.startswith(('http://', 'https://')):
-                                    href = urljoin(url, href)
-                                await page.goto(href, timeout=TIMEOUT/2, wait_until="domcontentloaded")
-                                emails.update(extract_emails_from_text(await page.content()))
-                            except Exception as e:
-                                print(f"Error checking subpage {href}: {e}")
+                    # Find all potential contact links
+                    contact_urls = await find_clickable_contact_links(page, url)
+                    
+                    # Try each contact link for emails
+                    for contact_url in contact_urls[:3]:  # Limit to top 3 contact links
+                        try:
+                            contact_emails = await scrape_contact_page(page, contact_url)
+                            if contact_emails:
+                                emails.update(contact_emails)
+                                break  # Stop at first successful contact page
+                        except:
+                            continue
                 
-                # If still no emails, find contact page URL
-                contact_url = None
-                if not emails:
-                    contact_url = await find_contact_page(page, url)
-                
-                return {
+                # Prepare result
+                result = {
                     'emails': list(emails) if emails else None,
-                    'contact_url': contact_url
+                    'contact_url': contact_urls[0] if not emails and contact_urls else None
                 }
+                
+                return result
             finally:
                 await browser.close()
     except Exception as e:
@@ -169,7 +190,7 @@ def fetch_with_requests(url):
         return {'emails': None, 'contact_url': None}
 
 async def extract_emails(url):
-    """Hybrid email extraction with contact page fallback."""
+    """Hybrid email extraction with enhanced contact page fallback."""
     if not url.startswith(('http://', 'https://')):
         url = f'http://{url}'
     
