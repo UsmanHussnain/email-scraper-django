@@ -5,10 +5,26 @@
     <div class="row justify-content-center">
         <div class="col-lg-12">
             <div class="card bg-white">
-                <div class="card-header bg-success text-white">
+                <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
                     <h2 class="mb-0">
                         <i class="fas fa-envelope-open-text me-2"></i>Extracted Emails
                     </h2>
+                    <div class="dropdown">
+                        <button class="btn btn-info dropdown-toggle" type="button" id="fileHistoryDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                            History
+                        </button>
+                        <ul class="dropdown-menu" aria-labelledby="fileHistoryDropdown">
+                            {% for file in media_files %}
+                                <li>
+                                    <a class="dropdown-item" href="?file={{ file }}">
+                                        {{ file }}
+                                    </a>
+                                </li>
+                            {% empty %}
+                                <li><a class="dropdown-item disabled">No previous files</a></li>
+                            {% endfor %}
+                        </ul>
+                    </div>
                 </div>
                 
                 <div class="card-body">
@@ -38,6 +54,7 @@
                                         <th class="text-center"><i class="fas fa me-2"></i>#</th>
                                         <th class="text-center"><i class="fas fa-globe me-2"></i>Website</th>
                                         <th class="text-center"><i class="fas fa-at me-2"></i>Emails</th>
+                                        <th class="text-center"><i class="fas fa-paper-plane me-2"></i>Send Email</th>
                                         <th class="text-center"><i class="fas fa-calendar me-2"></i>Domain Age</th>
                                         {% if user.is_superuser %}
                                             <th class="text-center"><i class="fas fa-edit me-2"></i>Actions</th>
@@ -56,13 +73,37 @@
                                                     <i class="fas fa-external-link-alt ms-1 text-info"></i>
                                                 </a>
                                             </td>
+                                            
                                             <td class="text-center font-monospace email-cell">
-                                                {% if row.is_contact_url %}
-                                                    <a href="{{ row.emails }}" target="_blank" class="text-decoration-none">
-                                                        Contact Page <i class="fas fa-external-link-alt ms-1 text-info"></i>
+                                                {% if user.is_superuser %}
+                                                    {% if row.is_contact_url %}
+                                                        <span class="inline-edit-email" style="cursor: pointer;" data-website="{{ row.original_website }}">
+                                                            <a href="{{ row.emails }}" target="_blank" class="text-decoration-none">
+                                                                Contact Page <i class="fas fa-external-link-alt ms-1 text-info"></i>
+                                                            </a>
+                                                        </span>
+                                                    {% else %}
+                                                        <span class="inline-edit-email" style="cursor: pointer;" data-website="{{ row.original_website }}">{{ row.emails|linebreaksbr }}</span>
+                                                    {% endif %}
+                                                {% else %}
+                                                    {% if row.is_contact_url %}
+                                                        <a href="{{ row.emails }}" target="_blank" class="text-decoration-none">
+                                                            Contact Page <i class="fas fa-external-link-alt ms-1 text-info"></i>
+                                                        </a>
+                                                    {% else %}
+                                                        {{ row.emails|linebreaksbr }}
+                                                    {% endif %}
+                                                {% endif %}
+                                            </td>
+                                            <td class="text-center">
+                                                {% if '@' in row.emails %}
+                                                    <a href="{% url 'compose_email' %}?email={{ row.emails }}" class="btn btn-sm btn-primary py-0 px-2" style="font-size: 0.75rem;">
+                                                        <i class="fas fa-paper-plane me-1"></i> Send
                                                     </a>
                                                 {% else %}
-                                                    {{ row.emails|linebreaksbr }}
+                                                    <button class="btn btn-sm btn-secondary py-0 px-2" disabled style="font-size: 0.75rem;">
+                                                        <i class="fas fa-paper-plane me-1"></i> Send
+                                                    </button>
                                                 {% endif %}
                                             </td>
                                             
@@ -73,14 +114,10 @@
                                                     <span class="text-muted">N/A</span>
                                                 {% endif %}
                                             </td>
+                                            
                                             {% if user.is_superuser %}
                                                 <td class="text-center">
                                                     <div class="btn-group btn-group-sm" role="group">
-                                                        <button class="btn btn-outline-primary edit-email-btn" 
-                                                                data-website="{{ row.original_website }}"
-                                                                data-current-email="{{ row.emails }}">
-                                                            <i class="fas fa-edit"></i>
-                                                        </button>
                                                         <button class="btn btn-outline-danger delete-email-btn" 
                                                                 data-website="{{ row.original_website }}"
                                                                 {% if row.emails == 'No Email No Contact' %}disabled{% endif %}>
@@ -107,38 +144,12 @@
                     </a>
                     {% if user.is_superuser %}
                     {% if download_url %}
-                        <a href="{{ download_url }}" download class="btn btn-primary">
+                        <a href="{% url 'download_file' %}?file={{ filename }}" class="btn btn-primary">
                             <i class="fas fa-file-download me-2"></i>Download Results
                         </a>
                     {% endif %}
                     {% endif %}
                 </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Email Edit Modal -->
-<div class="modal fade" id="emailEditModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header bg-success text-white">
-                <h5 class="modal-title">Edit Email</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <form id="emailEditForm">
-                    <input type="hidden" id="editWebsite" name="website">
-                    <input type="hidden" id="editFilename" name="filename" value="{{ filename }}">
-                    <div class="mb-3">
-                        <label for="editEmail" class="form-label">Email Address</label>
-                        <input type="text" class="form-control" id="editEmail" name="email" required>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-success" id="saveEmailBtn">Save Changes</button>
             </div>
         </div>
     </div>
@@ -176,16 +187,33 @@
     </div>
 </div>
 
+<style>
+    .inline-edit-container {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+    }
+    .inline-edit-input {
+        flex: 1;
+        padding: 2px 5px;
+        font-size: 0.9rem;
+        border: 1px solid #ced4da;
+        border-radius: 3px;
+    }
+    .inline-edit-btn {
+        padding: 2px 5px;
+        font-size: 0.8rem;
+        line-height: 1;
+    }
+</style>
+
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script>
     $(document).ready(function() {
-        // Initialize modals and toast
-        const emailEditModal = new bootstrap.Modal(document.getElementById('emailEditModal'));
         const deleteConfirmModal = new bootstrap.Modal(document.getElementById('deleteConfirmModal'));
         const toastLiveExample = document.getElementById('liveToast');
         const toast = new bootstrap.Toast(toastLiveExample);
         
-        // Update stats counters with full stats
         function updateStats(fullStats) {
             $('#total_count').text(fullStats.total || 0);
             $('#email_found_count').text(fullStats.emails_found || 0);
@@ -193,76 +221,107 @@
             $('#no_contact_count').text(fullStats.no_contact || 0);
         }
     
-        // Edit button click handler
-        $(document).on('click', '.edit-email-btn', function() {
-            const website = $(this).data('website');
-            const currentEmail = $(this).data('current-email');
-            
-            $('#editWebsite').val(website);
-            $('#editEmail').val(currentEmail === 'No Email No Contact' ? '' : currentEmail);
-            
-            emailEditModal.show();
+        $(document).on('click', '.inline-edit-email', function() {
+            const $span = $(this);
+            const currentEmail = $span.text().trim();
+            const $cell = $span.closest('.email-cell');
+            const website = $span.data('website');
+
+            $cell.data('original-content', $span.html());
+
+            $cell.html(`
+                <div class="inline-edit-container">
+                    <input type="text" class="inline-edit-input" value="${currentEmail === 'Contact Page' ? '' : currentEmail}" />
+                    <button class="btn btn-success inline-edit-btn inline-save-btn"><i class="fas fa-check"></i></button>
+                    <button class="btn btn-danger inline-edit-btn inline-cancel-btn"><i class="fas fa-times"></i></button>
+                </div>
+            `);
+
+            $cell.find('.inline-edit-input').focus();
         });
-    
-        // Delete button click handler
-        $(document).on('click', '.delete-email-btn', function() {
-            const website = $(this).data('website');
-            $('#deleteWebsite').val(website);
-            
-            deleteConfirmModal.show();
-        });
-    
-        // Save email changes
-        $('#saveEmailBtn').click(function() {
-            const formData = $('#emailEditForm').serialize();
-            const newEmail = $('#editEmail').val().trim();
+
+        $(document).on('click', '.inline-save-btn', function() {
+            const $btn = $(this);
+            const $cell = $btn.closest('.email-cell');
+            const $row = $cell.closest('tr');
+            const website = $cell.closest('tr').data('website');
+            const newEmail = $cell.find('.inline-edit-input').val().trim();
             const displayEmail = newEmail || 'No Email No Contact';
             const isContactUrl = displayEmail.startsWith('http');
-            
+
             $.ajax({
                 url: "{% url 'update_email' %}",
                 type: 'POST',
-                data: formData,
-                headers: {
-                    'X-CSRFToken': '{{ csrf_token }}'
+                data: {
+                    website: website,
+                    email: newEmail,
+                    filename: '{{ filename }}',
+                    'csrfmiddlewaretoken': '{{ csrf_token }}'
                 },
                 success: function(response) {
                     if (response.status === 'success') {
-                        // Find and update the row
-                        const website = $('#editWebsite').val();
-                        const row = $(`tr[data-website="${website}"]`);
-                        
                         if (isContactUrl) {
-                            row.find('.email-cell').html(
-                                `<a href="${displayEmail}" target="_blank" class="text-decoration-none">
-                                    Contact Page <i class="fas fa-external-link-alt ms-1 text-info"></i>
-                                </a>`
-                            );
+                            $cell.html(`
+                                <span class="inline-edit-email" style="cursor: pointer;" data-website="${website}">
+                                    <a href="${displayEmail}" target="_blank" class="text-decoration-none">
+                                        Contact Page <i class="fas fa-external-link-alt ms-1 text-info"></i>
+                                    </a>
+                                </span>
+                            `);
                         } else {
-                            row.find('.email-cell').text(displayEmail);
+                            $cell.html(`
+                                <span class="inline-edit-email" style="cursor: pointer;" data-website="${website}">
+                                    ${displayEmail}
+                                </span>
+                            `);
                         }
-                        
-                        row.find('.edit-email-btn').data('current-email', displayEmail);
-                        row.find('.delete-email-btn').prop('disabled', displayEmail === 'No Email No Contact');
-                        
-                        // Update stats with full stats from response
+
+                        $row.find('.delete-email-btn').prop('disabled', displayEmail === 'No Email No Contact');
+
                         if (response.full_stats) {
                             updateStats(response.full_stats);
                         }
-                        
-                        emailEditModal.hide();
+
                         showToast('Updated successfully!', 'success');
                     } else {
+                        $cell.html(`
+                            <span class="inline-edit-email" style="cursor: pointer;" data-website="${website}">
+                                ${response.message}
+                            </span>
+                        `);
                         showToast('Error: ' + response.message, 'danger');
                     }
                 },
                 error: function(xhr) {
+                    $cell.html(`
+                        <span class="inline-edit-email" style="cursor: pointer;" data-website="${website}">
+                            No Email No Contact
+                        </span>
+                    `);
                     showToast('Error updating email. Please try again.', 'danger');
                 }
             });
         });
+
+        $(document).on('click', '.inline-cancel-btn', function() {
+            const $btn = $(this);
+            const $cell = $btn.closest('.email-cell');
+            const originalContent = $cell.data('original-content');
+            const website = $cell.closest('tr').data('website');
+
+            $cell.html(`
+                <span class="inline-edit-email" style="cursor: pointer;" data-website="${website}">
+                    ${originalContent}
+                </span>
+            `);
+        });
     
-        // Confirm delete email
+        $(document).on('click', '.delete-email-btn', function() {
+            const website = $(this).data('website');
+            $('#deleteWebsite').val(website);
+            deleteConfirmModal.show();
+        });
+    
         $('#confirmDeleteBtn').click(function() {
             const website = $('#deleteWebsite').val();
             
@@ -277,14 +336,14 @@
                 },
                 success: function(response) {
                     if (response.status === 'success') {
-                        // Find and update the row
                         const row = $(`tr[data-website="${website}"]`);
-                        
-                        row.find('.email-cell').text('No Email No Contact');
-                        row.find('.edit-email-btn').data('current-email', 'No Email No Contact');
+                        row.find('.email-cell').html(`
+                            <span class="inline-edit-email" style="cursor: pointer;" data-website="${website}">
+                                No Email No Contact
+                            </span>
+                        `);
                         row.find('.delete-email-btn').prop('disabled', true);
                         
-                        // Update stats with full stats from response
                         if (response.full_stats) {
                             updateStats(response.full_stats);
                         }
@@ -301,7 +360,6 @@
             });
         });
     
-        // Helper function to show toast notifications
         function showToast(message, type) {
             const toastBody = $('.toast-body');
             toastBody.text(message);

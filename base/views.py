@@ -37,12 +37,28 @@ def upload_excel(request):
 @login_required
 def display_emails(request):
     try:
-        latest_file = UploadedFile.objects.latest('uploaded_at')
-        file_path = os.path.join(settings.MEDIA_ROOT, latest_file.file.name)
+        # Get all uploaded files for history
+        uploaded_files = UploadedFile.objects.all().order_by('-uploaded_at')
+        latest_file = uploaded_files[0] if uploaded_files.exists() else None
+        selected_file = request.GET.get('file')
+        
+        if selected_file:
+            try:
+                selected_file_obj = UploadedFile.objects.get(file=selected_file)
+                file_path = os.path.join(settings.MEDIA_ROOT, selected_file_obj.file.name)
+            except UploadedFile.DoesNotExist:
+                file_path = os.path.join(settings.MEDIA_ROOT, latest_file.file.name) if latest_file else None
+        elif latest_file:
+            file_path = os.path.join(settings.MEDIA_ROOT, latest_file.file.name)
+        else:
+            return render(request, 'base/email_display.html', {"error": "No file attached. Please upload a new Excel file."})
+
+        if not file_path or not os.path.exists(file_path):
+            return render(request, 'base/email_display.html', {"error": "No file attached. Please upload a new Excel file."})
+
         df = pd.read_excel(file_path)
         df.columns = [col.strip().lower() for col in df.columns]
 
-        # Calculate stats from the DataFrame
         stats = {
             'total': len(df),
             'emails_found': 0,
@@ -75,7 +91,7 @@ def display_emails(request):
                     'is_contact_url': 'http' in emails.lower()
                 })
 
-        download_url = os.path.join(settings.MEDIA_URL, latest_file.file.name).replace('\\', '/')
+        download_url = os.path.join(settings.MEDIA_URL, (selected_file_obj.file.name if selected_file else latest_file.file.name)).replace('\\', '/')
         context = {
             "email_list": email_list,
             "download_url": download_url,
@@ -83,7 +99,8 @@ def display_emails(request):
             "email_found_count": stats['emails_found'],
             "contact_page_count": stats['contact_pages'],
             "no_contact_count": stats['no_contact'],
-            "filename": latest_file.file.name
+            "filename": (selected_file_obj.file.name if selected_file else latest_file.file.name),
+            "uploaded_files": uploaded_files
         }
         return render(request, 'base/email_display.html', context)
     except Exception as e:
@@ -105,15 +122,12 @@ def update_email(request):
             file_path = os.path.join(settings.MEDIA_ROOT, filename)
             df = pd.read_excel(file_path)
             
-            # Standardize column names
             df.columns = df.columns.str.strip().str.lower()
             
-            # Find the row
             mask = df['website'].astype(str).str.strip() == str(website).strip()
             if not mask.any():
                 return JsonResponse({'status': 'error', 'message': 'Website not found'}, status=404)
             
-            # Get current values for stats calculation
             current_value = df.loc[mask, 'emails'].iloc[0]
             was_email = '@' in str(current_value)
             was_contact = not was_email and any(
@@ -128,10 +142,8 @@ def update_email(request):
                 new_value = new_email
                 df.loc[mask, 'emails'] = new_value
             
-            # Save the updated file
             df.to_excel(file_path, index=False)
             
-            # Calculate stats changes
             is_email = '@' in new_value
             is_contact = not is_email and any(
                 x in new_value.lower() 
@@ -159,7 +171,6 @@ def update_email(request):
             elif (not is_email and not is_contact) and (was_email or was_contact):
                 stats_update['no_contact'] = 1
             
-            # Recalculate full stats from the updated file
             df = pd.read_excel(file_path)
             full_stats = {
                 'total': len(df),
@@ -192,3 +203,13 @@ def download_file(request):
         return HttpResponse("File not found", status=404)
     except Exception as e:
         return HttpResponse(f"Error: {str(e)}", status=500)
+    
+@login_required
+def compose_email(request):
+    email = request.GET.get('email', '')
+    context = {
+        'email': email,
+        'subject': '',
+        'body': ''
+    }
+    return render(request, 'base/compose_email.html', context)

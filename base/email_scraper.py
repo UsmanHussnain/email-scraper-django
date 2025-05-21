@@ -15,38 +15,33 @@ TIMEOUT = 100000  # 100 seconds
 MAX_WORKERS = multiprocessing.cpu_count() * 2
 CONTACT_KEYWORDS = ['contact', 'about', 'support', 'help', 'mailto', 'reach', 'connect']
 CONTACT_PAGE = [ 'contact', 'contact-us', 'contactus']
+# Updated excluded email patterns
+EXCLUDED_EMAIL_PATTERNS = [
+    r'^demo@', r'^test@', r'^example@', r'^sample@',
+    r'@example\.com$', r'@test\.com$', r'@demo\.com$',
+    r'name@yourcompany\.', r'yourname@yourcompany\.', 
+    r'company@gmail\.com$', r'your@email\.com$',
+    r'info@example\.com$', r'contact@example\.com$',
+    r'@yourdomain\.com$', r'^@yourcompany\.com$',
+    r'user@example\.com$', r'email@example\.com$',
+    r'support@example\.com$', r'sales@example\.com$',
+    r'\.js$', r'\.png$', r'\.jpg$', r'\.jpeg$', r'\.gif$', r'\.css$',
+    r'react-jsx-runtime@', r'react-dom@', r'react@', r'react-dom-client@',
+    r'react-jsx-dev-runtime@'
+]
 
 def is_valid_email(email):
     """Validate email to exclude dummy, test, or file-like patterns."""
-    # Common dummy/test email patterns
-    dummy_patterns = [
-        r'^demo@', r'^test@', r'^example@', r'^sample@',
-        r'@example\.com$', r'@test\.com$', r'@demo\.com$'
-    ]
-    
-    # File-like or JavaScript-related patterns
-    file_patterns = [
-        r'\.js$', r'\.png$', r'\.jpg$', r'\.jpeg$', r'\.gif$', r'\.css$',
-        r'react-jsx-runtime@', r'react-dom@', r'react@', r'react-dom-client@',
-        r'react-jsx-dev-runtime@'
-    ]
-    
-    # Combine all invalid patterns
-    invalid_patterns = dummy_patterns + file_patterns
-    
     # Check if email matches any invalid pattern
-    for pattern in invalid_patterns:
+    for pattern in EXCLUDED_EMAIL_PATTERNS:
         if re.search(pattern, email, re.IGNORECASE):
             return False
     
     # Basic validation for realistic email structure
-    # Ensure local part and domain are not empty or overly suspicious
     local, domain = email.split('@')
     if not local or not domain:
         return False
     
-    # Allow emails that resemble website names (e.g., name@yourcompany.co)
-    # Basic check for valid domain structure
     if not re.match(r'^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', domain):
         return False
     

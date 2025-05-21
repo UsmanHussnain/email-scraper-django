@@ -8,6 +8,7 @@ urlpatterns = [
     path('emails/', display_emails, name='display_emails'),
     path('download/', download_file, name='download_file'),
     path('update-email/', update_email, name='update_email'),
+    path('compose-email/', compose_email, name='compose_email'),
 ]
 
 if settings.DEBUG:
