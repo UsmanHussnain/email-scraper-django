@@ -9,6 +9,7 @@ urlpatterns = [
     path('download/', download_file, name='download_file'),
     path('update-email/', update_email, name='update_email'),
     path('compose-email/', compose_email, name='compose_email'),
+    path('chat/<str:email>/', chat, name='chat'),
 ]
 
 if settings.DEBUG:

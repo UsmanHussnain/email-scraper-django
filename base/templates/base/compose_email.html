@@ -5,49 +5,71 @@
     <div class="row justify-content-center">
         <div class="col-lg-8">
             <div class="card bg-white">
-                <div class="card-header bg-success text-white">
+                <div class="card-header bg-primary text-white">
                     <h2 class="mb-0">
-                        <i class="fas fa-envelope me-2"></i>Compose Email
+                        <i class="fas fa-paper-plane me-2"></i>Compose Email
                     </h2>
                 </div>
-                
                 <div class="card-body">
-                    <form method="post">
+                    <form method="POST">
                         {% csrf_token %}
-                        
                         <div class="mb-3">
-                            <label for="toEmail" class="form-label">To:</label>
-                            <input type="email" class="form-control" id="toEmail" 
-                                   value="{{ email }}" readonly>
+                            <label for="email" class="form-label">To:</label>
+                            <input type="email" class="form-control" id="email" name="email" value="{{ email }}" readonly>
                         </div>
-                        
                         <div class="mb-3">
                             <label for="subject" class="form-label">Subject:</label>
-                            <input type="text" class="form-control" id="subject" 
-                                   name="subject" placeholder="Enter email subject">
+                            <input type="text" class="form-control" id="subject" name="subject" value="{{ subject }}" required>
                         </div>
-                        
                         <div class="mb-3">
                             <label for="body" class="form-label">Message:</label>
-                            <textarea class="form-control" id="body" name="body" 
-                                      rows="8" placeholder="Type your message here"></textarea>
+                            <textarea class="form-control" id="body" name="body" rows="8" required>{{ body }}</textarea>
                         </div>
-                        
                         <div class="d-grid gap-2">
                             <button type="submit" class="btn btn-primary">
-                                <i class="fas fa-paper-plane me-2"></i> Send Email
+                                <i class="fas fa-paper-plane me-2"></i>Send Email
                             </button>
                         </div>
                     </form>
                 </div>
-                
                 <div class="card-footer bg-light">
                     <a href="{% url 'display_emails' %}" class="btn btn-secondary">
-                        <i class="fas fa-arrow-left me-2"></i> Back to Emails
+                        <i class="fas fa-arrow-left me-2"></i>Back to Emails
                     </a>
                 </div>
             </div>
         </div>
     </div>
 </div>
+
+<!-- Toast Notification -->
+<div class="position-fixed bottom-0 end-0 p-3" style="z-index: 11">
+    <div id="liveToast" class="toast hide" role="alert" aria-live="assertive" aria-atomic="true" data-bs-autohide="true" data-bs-delay="3000">
+        <div class="toast-header">
+            <strong class="me-auto">Notification</strong>
+            <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
+        <div class="toast-body"></div>
+    </div>
+</div>
+
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script>
+    $(document).ready(function() {
+        const toastLiveExample = document.getElementById('liveToast');
+        const toast = new bootstrap.Toast(toastLiveExample);
+
+        // Show Django messages as toasts
+        {% for message in messages %}
+            showToast("{{ message }}", "{{ message.tags }}");
+        {% endfor %}
+
+        function showToast(message, type) {
+            const toastBody = $('.toast-body');
+            toastBody.text(message);
+            toastBody.removeClass().addClass(`toast-body bg-${type}`);
+            toast.show();
+        }
+    });
+</script>
 {% endblock %}

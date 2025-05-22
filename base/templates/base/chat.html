@@ -1,0 +1,64 @@
+{% extends 'base/baseIndex.html' %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row vh-100">
+        <!-- Left Sidebar for Chat List -->
+        <div class="col-md-4 bg-dark text-white p-0" style="border-right: 1px solid #ccc;">
+            <div class="p-3 border-bottom" style="background-color: #075e54; color: white;">
+                <h4>Chats</h4>
+            </div>
+            <div class="chat-list" style="overflow-y: auto; height: calc(100vh - 100px);">
+                {% for chat_email in chat_emails %}
+                    <a href="{% url 'chat' email=chat_email %}" class="text-decoration-none text-white d-block p-2 {% if selected_email == chat_email %}bg-secondary{% endif %}" style="border-bottom: 1px solid #333;">
+                        {{ chat_email }}
+                    </a>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Right Chat Area -->
+        <div class="col-md-8 p-0">
+            <div class="bg-dark text-white p-3" style="background-color: #075e54; color: white;">
+                <h4>Chat with {{ selected_email }}</h4>
+            </div>
+            <div class="chat-messages bg-dark text-white p-3" style="height: calc(100vh - 150px); overflow-y: auto;">
+                {% for message in chat_history %}
+                    <div class="mb-2 {% if message.sent %}text-end{% endif %}" style="max-width: 70%;">
+                        <div class="p-2 rounded {% if message.sent %}bg-success{% else %}bg-secondary{% endif %}" style="display: inline-block;">
+                            <small class="text-muted">{{ message.timestamp }}</small><br>
+                            {{ message.message }}<br>
+                            <small class="text-muted">From: {{ message.from }} to {{ message.to }}</small>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+            <form method="POST" class="p-3 bg-dark" style="border-top: 1px solid #ccc;">
+                {% csrf_token %}
+                <div class="input-group">
+                    <textarea name="message" class="form-control bg-dark text-white" rows="2" placeholder="Type a message..." style="resize: none; border-color: #ccc;"></textarea>
+                    <button type="submit" class="btn btn-success">Send</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<style>
+    .chat-list a:hover {
+        background-color: #333;
+    }
+    .chat-messages {
+        background-color: #111;
+    }
+</style>
+
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script>
+    $(document).ready(function() {
+        // Auto-scroll to the latest message
+        const chatMessages = $('.chat-messages');
+        chatMessages.scrollTop(chatMessages[0].scrollHeight);
+    });
+</script>
+{% endblock %}

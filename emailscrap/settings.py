@@ -146,3 +146,13 @@ CRISPY_TEMPLATE_PACK = "bootstrap4"
 AUTH_USER_MODEL = 'accounts.CustomUser'
 LOGIN_REDIRECT_URL = 'upload_excel'  # Change to your desired redirect
 LOGOUT_REDIRECT_URL = 'accounts:login'
+
+
+
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_PORT = 587 
+EMAIL_USE_TLS = True  
+EMAIL_HOST_USER = 'usmandjangodev@gmail.com'  
+EMAIL_HOST_PASSWORD = 'rtdx fmpw nekn pmxl'
+DEFAULT_FROM_EMAIL = 'usmandjangodev@gmail.com'
