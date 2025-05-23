@@ -156,3 +156,7 @@ EMAIL_USE_TLS = True
 EMAIL_HOST_USER = 'usmandjangodev@gmail.com'  
 EMAIL_HOST_PASSWORD = 'rtdx fmpw nekn pmxl'
 DEFAULT_FROM_EMAIL = 'usmandjangodev@gmail.com'
+
+# Time Zone Settings
+TIME_ZONE = 'Asia/Karachi'
+USE_TZ = True

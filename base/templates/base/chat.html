@@ -1,64 +1,548 @@
 {% extends 'base/baseIndex.html' %}
 
 {% block content %}
-<div class="container-fluid">
-    <div class="row vh-100">
-        <!-- Left Sidebar for Chat List -->
-        <div class="col-md-4 bg-dark text-white p-0" style="border-right: 1px solid #ccc;">
-            <div class="p-3 border-bottom" style="background-color: #075e54; color: white;">
-                <h4>Chats</h4>
-            </div>
-            <div class="chat-list" style="overflow-y: auto; height: calc(100vh - 100px);">
-                {% for chat_email in chat_emails %}
-                    <a href="{% url 'chat' email=chat_email %}" class="text-decoration-none text-white d-block p-2 {% if selected_email == chat_email %}bg-secondary{% endif %}" style="border-bottom: 1px solid #333;">
-                        {{ chat_email }}
-                    </a>
-                {% endfor %}
+<div class="container-fluid py-4">
+    <div class="row">
+        <!-- Sidebar with email contacts -->
+        <div class="col-lg-3 col-md-4 mb-4 mb-md-0">
+            <div class="card h-100 shadow-sm" style="background-color: #f8f9fa;">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0">
+                        <i class="fas fa-users me-2"></i>Contacts
+                    </h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="list-group list-group-flush">
+                        {% for email in chat_emails %}
+                            <a href="{% url 'chat' contact_email=email %}" 
+                               class="list-group-item list-group-item-action {% if email == selected_email %}active{% endif %}" style="background-color: {% if email == selected_email %}#28a745{% else %}#f8f9fa{% endif %};">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <span class="text-truncate" style="max-width: 80%;">{{ email }}</span>
+                                    {% if email == selected_email %}
+                                        <span class="badge bg-light text-success rounded-pill">
+                                            <i class="fas fa-comment"></i>
+                                        </span>
+                                    {% endif %}
+                                </div>
+                            </a>
+                        {% empty %}
+                            <div class="list-group-item text-muted text-center py-4">
+                                <i class="fas fa-inbox fa-2x mb-2"></i>
+                                <p>No conversations yet</p>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                <div class="card-footer bg-light">
+                    <button class="btn btn-sm btn-success w-100" data-bs-toggle="modal" data-bs-target="#newChatModal">
+                        <i class="fas fa-plus me-1"></i> New Chat
+                    </button>
+                </div>
             </div>
         </div>
 
-        <!-- Right Chat Area -->
-        <div class="col-md-8 p-0">
-            <div class="bg-dark text-white p-3" style="background-color: #075e54; color: white;">
-                <h4>Chat with {{ selected_email }}</h4>
-            </div>
-            <div class="chat-messages bg-dark text-white p-3" style="height: calc(100vh - 150px); overflow-y: auto;">
-                {% for message in chat_history %}
-                    <div class="mb-2 {% if message.sent %}text-end{% endif %}" style="max-width: 70%;">
-                        <div class="p-2 rounded {% if message.sent %}bg-success{% else %}bg-secondary{% endif %}" style="display: inline-block;">
-                            <small class="text-muted">{{ message.timestamp }}</small><br>
-                            {{ message.message }}<br>
-                            <small class="text-muted">From: {{ message.from }} to {{ message.to }}</small>
-                        </div>
+        <!-- Main chat area -->
+        <div class="col-lg-9 col-md-8">
+            <div class="card h-100 shadow-sm" style="background-color: #f8f9fa;">
+                <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i class="fas fa-comments me-2"></i>Chat with {{ selected_email }}
+                    </h5>
+                    <div>
+                        <button class="btn btn-sm btn-light text-success border-success me-2" data-bs-toggle="modal" data-bs-target="#emailTemplateModal">
+                            <i class="fas fa-file-alt me-1"></i> Templates
+                        </button>
+                        <a href="{% url 'compose_email' %}?email={{ selected_email }}" class="btn btn-sm btn-warning me-2">
+                            <i class="fas fa-paper-plane me-1"></i> Compose Email
+                        </a>
+                        <button class="btn btn-sm btn-danger delete-chat-btn" data-email="{{ selected_email }}" title="Delete this chat">
+                            <i class="fas fa-trash-alt"></i> Delete
+                        </button>
                     </div>
-                {% endfor %}
+                </div>
+                
+                <!-- Chat messages container -->
+                <div class="card-body p-0 position-relative">
+                    <div id="chatContainer" class="p-3" style="height: 500px; overflow-y: auto;">
+                        {% if chat_history %}
+                            {% for message in chat_history %}
+                                <div class="mb-3 {% if message.is_sent %}text-end{% else %}text-start{% endif %}">
+                                    <div class="d-flex {% if message.is_sent %}justify-content-end{% else %}justify-content-start{% endif %}">
+                                        <div class="{% if message.is_sent %}bg-success{% else %}bg-light{% endif %} text-{% if message.is_sent %}white{% else %}dark{% endif %} p-3 rounded-3 shadow-sm" 
+                                             style="max-width: 70%;">
+                                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                                <small class="fw-bold">
+                                                    {% if message.is_sent %}
+                                                        You
+                                                    {% else %}
+                                                        {{ message.sender }}
+                                                    {% endif %}
+                                                </small>
+                                                <small class="ms-2">
+                                                    {{ message.timestamp|date:"M j, H:i" }}
+                                                </small>
+                                            </div>
+                                            <p class="mb-0">{{ message.message|linebreaksbr }}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        {% else %}
+                            <div class="h-100 d-flex flex-column justify-content-center align-items-center text-muted">
+                                <i class="fas fa-comment-slash fa-3x mb-3"></i>
+                                <h5>No messages yet</h5>
+                                <p>Start the conversation with {{ selected_email }}</p>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+                
+                <!-- Message input area -->
+                <div class="card-footer bg-light">
+                    <form method="POST" id="chatForm">
+                        {% csrf_token %}
+                        <div class="input-group">
+                            <textarea class="form-control" id="messageInput" name="message" rows="2" 
+                                      placeholder="Type your message here..." required style="border-color: #ced4da;"></textarea>
+                            <button type="submit" class="btn btn-success">
+                                <i class="fas fa-paper-plane"></i> Send
+                            </button>
+                        </div>
+                        <div class="d-flex justify-content-between mt-2">
+                            <small class="text-muted">
+                                Press Shift+Enter for new line
+                            </small>
+                            <small class="text-muted">
+                                Messages are sent as emails
+                            </small>
+                        </div>
+                    </form>
+                </div>
             </div>
-            <form method="POST" class="p-3 bg-dark" style="border-top: 1px solid #ccc;">
-                {% csrf_token %}
-                <div class="input-group">
-                    <textarea name="message" class="form-control bg-dark text-white" rows="2" placeholder="Type a message..." style="resize: none; border-color: #ccc;"></textarea>
-                    <button type="submit" class="btn btn-success">Send</button>
+        </div>
+    </div>
+</div>
+
+<!-- New Chat Modal -->
+<div class="modal fade" id="newChatModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title">Start New Chat</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="GET" action="{% url 'chat' contact_email='new' %}">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="newEmail" class="form-label">Email Address</label>
+                        <input type="email" class="form-control" id="newEmail" name="email" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Start Chat</button>
                 </div>
             </form>
         </div>
     </div>
 </div>
 
-<style>
-    .chat-list a:hover {
-        background-color: #333;
-    }
-    .chat-messages {
-        background-color: #111;
-    }
-</style>
+<!-- Email Templates Modal -->
+<div class="modal fade" id="emailTemplateModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title">Email Templates</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="list-group" id="templateList">
+                            <a href="#" class="list-group-item list-group-item-action active" data-template="template1" style="background-color: #28a745; color: white;">
+                                Guest Post Opportunity
+                            </a>
+                            <a href="#" class="list-group-item list-group-item-action" data-template="template2">
+                                Collaboration Proposal
+                            </a>
+                            <a href="#" class="list-group-item list-group-item-action" data-template="template3">
+                                Guest Post Partnership
+                            </a>
+                            <a href="#" class="list-group-item list-group-item-action" data-template="template4">
+                                Boost Your Site
+                            </a>
+                        </div>
+                    </div>
+                    <div class="col-md-8">
+                        <div class="card h-100 shadow-sm" style="background-color: #f8f9fa;">
+                            <div class="card-header bg-light">
+                                <h6 id="templateTitle" class="mb-0">Template Preview</h6>
+                            </div>
+                            <div class="card-body">
+                                <div id="templatePreview" class="p-2" style="height: 300px; overflow-y: auto;">
+                                    <!-- Template content will be loaded here -->
+                                </div>
+                            </div>
+                            <div class="card-footer bg-light">
+                                <button id="useTemplateBtn" class="btn btn-sm btn-success">
+                                    <i class="fas fa-check me-1"></i> Use This Template
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Confirmation Modal for Delete -->
+<div class="modal fade" id="deleteConfirmModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title">Confirm Delete</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete the chat with <strong id="deleteEmail"></strong>? This action cannot be undone.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="confirmDeleteBtn">Delete</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Toast Notification -->
+<div class="position-fixed bottom-0 end-0 p-3" style="z-index: 11">
+    <div id="liveToast" class="toast hide" role="alert" aria-live="assertive" aria-atomic="true" data-bs-autohide="true" data-bs-delay="3000">
+        <div class="toast-header">
+            <strong class="me-auto">Notification</strong>
+            <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
+        <div class="toast-body"></div>
+    </div>
+</div>
 
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script>
     $(document).ready(function() {
-        // Auto-scroll to the latest message
-        const chatMessages = $('.chat-messages');
-        chatMessages.scrollTop(chatMessages[0].scrollHeight);
+        const toastLiveExample = document.getElementById('liveToast');
+        const toast = new bootstrap.Toast(toastLiveExample);
+        const deleteConfirmModal = new bootstrap.Modal(document.getElementById('deleteConfirmModal'));
+
+        // Template data
+        const templates = {
+            template1: {
+                title: "Guest Post Opportunity",
+                content: `Hello,\n\nI hope this email finds you well! My name is [Your Name], and I'm reaching out to discuss a potential guest post opportunity for your website. We specialize in creating high-quality, engaging content that aligns with your audience's interests.\n\nI'd love to contribute a well-researched article that provides value to your readers. Please let me know if you're open to this idea, and I can share some topic suggestions.\n\nLooking forward to hearing from you!\n\nRegards,\n{{ user.first_name|default:user.username }}`
+            },
+            template2: {
+                title: "Collaboration Proposal: Guest Blog Post",
+                content: `Hi there,\n\nI'm [Your Name], a content creator passionate about [your niche]. I've been following your website and love the content you share. I'd like to propose a guest blog post that complements your site's theme and adds value for your readers.\n\nIf you're interested, I can send over a few topic ideas or work with any guidelines you provide.\n\nLet's connect and discuss further!\n\nRegards,\n{{ user.first_name|default:user.username }}`
+            },
+            template3: {
+                title: "Interested in a Guest Post Partnership?",
+                content: `Dear [Website Owner],\n\nGreetings! I'm [Your Name], and I specialize in crafting informative and engaging content. I believe a guest post on your website could be a great way to share valuable insights with your audience.\n\nI'm happy to write on a topic that fits your site's focus. Please let me know your guest posting guidelines or any preferred topics.\n\nExcited to collaborate!\n\nRegards,\n{{ user.first_name|default:user.username }}`
+            },
+            template4: {
+                title: "Let's Boost Your Site with a Guest Post",
+                content: `Hello,\n\nMy name is [Your Name], and I'm a writer with a passion for creating content that resonates with readers. I'd love to contribute a guest post to your website, offering fresh perspectives and actionable insights.\n\nIf this sounds interesting, I can provide topic ideas or follow your editorial guidelines.\n\nLooking forward to your response!\n\nRegards,\n{{ user.first_name|default:user.username }}`
+            }
+        };
+        
+        // Show Django messages as toasts
+        {% for message in messages %}
+            showToast("{{ message }}", "{{ message.tags }}");
+        {% endfor %}
+        
+        // Auto-scroll chat to bottom on page load
+        const chatContainer = document.getElementById('chatContainer');
+        if (chatContainer) {
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+        
+        // Handle template selection
+        $('[data-template]').click(function(e) {
+            e.preventDefault();
+            const templateId = $(this).data('template');
+            const template = templates[templateId];
+            
+            // Update active state
+            $('[data-template]').removeClass('active');
+            $(this).addClass('active');
+            
+            // Update preview
+            $('#templateTitle').text(template.title);
+            $('#templatePreview').html(template.content.replace(/\n/g, '<br>'));
+            
+            // Update styles for active template
+            $('[data-template]').css({'background-color': '', 'color': ''});
+            $(this).css({'background-color': '#28a745', 'color': 'white'});
+        });
+        
+        // Initialize first template on modal show
+        $('#emailTemplateModal').on('show.bs.modal', function() {
+            if ($('[data-template]').length > 0) {
+                const firstTemplate = $('[data-template]').first().data('template');
+                $('#templateTitle').text(templates[firstTemplate].title);
+                $('#templatePreview').html(templates[firstTemplate].content.replace(/\n/g, '<br>'));
+                $('[data-template]').first().addClass('active').css({'background-color': '#28a745', 'color': 'white'});
+            }
+        });
+        
+        // Use template button
+        $('#useTemplateBtn').click(function() {
+            const activeTemplate = $('[data-template].active').data('template');
+            if (activeTemplate && templates[activeTemplate]) {
+                $('#messageInput').val(templates[activeTemplate].content);
+                $('#emailTemplateModal').modal('hide');
+                $('#messageInput').focus();
+                showToast('Template applied successfully!', 'success');
+            }
+        });
+        
+        // Handle Shift+Enter for new line, Enter to submit
+        $('#messageInput').keydown(function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                $('#chatForm').submit();
+            }
+        });
+        
+        // Form submission with better UX
+        $('#chatForm').submit(function(e) {
+            const message = $('#messageInput').val().trim();
+            
+            if (!message) {
+                e.preventDefault();
+                showToast('Please enter a message.', 'warning');
+                return false;
+            }
+            
+            // Show sending indicator
+            const submitBtn = $(this).find('button[type="submit"]');
+            const originalText = submitBtn.html();
+            submitBtn.html('<i class="fas fa-spinner fa-spin"></i> Sending...').prop('disabled', true);
+            
+            // Let the form submit normally
+            // The page will reload and show the new message
+        });
+        
+        // Auto-refresh chat every 30 seconds to check for new emails
+        setInterval(function() {
+            // Only refresh if user is not typing
+            if (!$('#messageInput').is(':focus')) {
+                checkForNewMessages();
+            }
+        }, 30000);
+        
+        // Delete chat functionality
+        $('.delete-chat-btn').click(function() {
+            const email = $(this).data('email');
+            $('#deleteEmail').text(email);
+            deleteConfirmModal.show();
+        });
+
+        $('#confirmDeleteBtn').click(function() {
+            const email = $('#deleteEmail').text();
+            $.ajax({
+                url: `{% url 'delete_chat' contact_email='PLACEHOLDER' %}`.replace('PLACEHOLDER', email),
+                type: 'POST',
+                data: {
+                    csrfmiddlewaretoken: $('input[name=csrfmiddlewaretoken]').val()
+                },
+                beforeSend: function() {
+                    $('#confirmDeleteBtn').html('<i class="fas fa-spinner fa-spin"></i> Deleting...').prop('disabled', true);
+                },
+                success: function(response) {
+                    if (response.status === 'success') {
+                        showToast(response.message, 'success');
+                        setTimeout(function() {
+                            window.location.href = response.redirect_url;
+                        }, 2000);
+                    } else {
+                        showToast(response.message, 'danger');
+                    }
+                },
+                error: function() {
+                    showToast('An error occurred while deleting the chat.', 'danger');
+                },
+                complete: function() {
+                    deleteConfirmModal.hide();
+                    $('#confirmDeleteBtn').html('Delete').prop('disabled', false);
+                }
+            });
+        });
+
+        function checkForNewMessages() {
+            // Simple check - reload the page to fetch new emails
+            // You could implement AJAX here for better UX
+            const currentMessageCount = $('.mb-3').length;
+            $.get(window.location.href, function(data) {
+                const newDoc = $(data);
+                const newMessageCount = newDoc.find('.mb-3').length;
+                if (newMessageCount > currentMessageCount) {
+                    location.reload();
+                }
+            });
+        }
+        
+        function showToast(message, type) {
+            const toastBody = $('.toast-body');
+            const toastHeader = $('.toast-header');
+            
+            // Set appropriate colors based on message type
+            toastBody.removeClass().addClass('toast-body');
+            toastHeader.removeClass().addClass('toast-header');
+            
+            switch(type) {
+                case 'success':
+                    toastBody.addClass('text-success');
+                    toastHeader.addClass('bg-success text-white');
+                    break;
+                case 'error':
+                case 'danger':
+                    toastBody.addClass('text-danger');
+                    toastHeader.addClass('bg-danger text-white');
+                    break;
+                case 'warning':
+                    toastBody.addClass('text-warning');
+                    toastHeader.addClass('bg-warning');
+                    break;
+                default:
+                    toastBody.addClass('text-info');
+                    toastHeader.addClass('bg-info text-white');
+            }
+            
+            toastBody.text(message);
+            toast.show();
+        }
     });
 </script>
+
+<style>
+    /* Custom styles for chat interface */
+    .list-group-item {
+        transition: background-color 0.3s ease;
+    }
+    
+    .list-group-item:hover {
+        background-color: #e9ecef !important;
+    }
+    
+    .list-group-item.active {
+        background-color: #28a745 !important;
+        border-color: #28a745 !important;
+        color: white !important;
+    }
+    
+    #chatContainer {
+        background-color: #f8f9fa;
+        background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23e9ecef' fill-opacity='0.2'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+    }
+    
+    [data-bs-theme="dark"] #chatContainer {
+        background-color: #2c3e50;
+        background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%231a1a2e' fill-opacity='0.2'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+    }
+    
+    /* Custom scrollbar */
+    #chatContainer::-webkit-scrollbar {
+        width: 8px;
+    }
+    
+    #chatContainer::-webkit-scrollbar-track {
+        background: #f1f1f1;
+    }
+    
+    #chatContainer::-webkit-scrollbar-thumb {
+        background: #888;
+        border-radius: 4px;
+    }
+    
+    #chatContainer::-webkit-scrollbar-thumb:hover {
+        background: #555;
+    }
+    
+    [data-bs-theme="dark"] #chatContainer::-webkit-scrollbar-track {
+        background: #2c3e50;
+    }
+    
+    [data-bs-theme="dark"] #chatContainer::-webkit-scrollbar-thumb {
+        background: #6c757d;
+    }
+    
+    /* Message bubbles */
+    .bg-light {
+        background-color: #e9ecef !important;
+        border: 1px solid #dee2e6;
+    }
+    
+    [data-bs-theme="dark"] .bg-light {
+        background-color: #343a40 !important;
+        color: #f8f9fa;
+        border: 1px solid #495057;
+    }
+    
+    /* Card enhancements */
+    .card {
+        border: none;
+        border-radius: 10px;
+        transition: transform 0.2s ease;
+    }
+    
+    .card:hover {
+        transform: translateY(-2px);
+    }
+    
+    /* Message animation */
+    .mb-3 {
+        animation: fadeInUp 0.3s ease-out;
+    }
+    
+    @keyframes fadeInUp {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    
+    /* Responsive adjustments */
+    @media (max-width: 767.98px) {
+        .col-lg-3, .col-lg-9 {
+            padding-left: 0;
+            padding-right: 0;
+        }
+        
+        #chatContainer {
+            height: 300px !important;
+        }
+        
+        .modal-dialog.modal-lg {
+            max-width: 95%;
+        }
+    }
+    
+    /* Loading state */
+    .btn:disabled {
+        opacity: 0.7;
+    }
+    
+    /* Template preview styling */
+    #templatePreview {
+        background-color: white;
+        border: 1px solid #dee2e6;
+        border-radius: 5px;
+        font-family: 'Courier New', monospace;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+    }
+</style>
 {% endblock %}
