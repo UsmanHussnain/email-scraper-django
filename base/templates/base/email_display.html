@@ -58,7 +58,9 @@
                                         <th class="text-center"><i class="fas fa-globe me-2"></i>Website</th>
                                         <th class="text-center"><i class="fas fa-at me-2"></i>Emails</th>
                                         <th class="text-center"><i class="fas fa-link me-2"></i>Contact Pages</th>
-                                        <th class="text-center"><i class="fas fa-paper-plane me-2"></i>Send Email</th>
+                                        {% if user.is_superuser %}
+                                            <th class="text-center"><i class="fas fa-comment me-2"></i>Action</th>
+                                        {% endif %}
                                         <th class="text-center"><i class="fas fa-calendar me-2"></i>Domain Age</th>
                                         {% if user.is_superuser %}
                                             <th class="text-center"><i class="fas fa-edit me-2"></i>Actions</th>
@@ -93,17 +95,25 @@
                                                     {{ row.contact_url|linebreaksbr }}
                                                 {% endif %}
                                             </td>
-                                            <td class="text-center">
-                                                {% if '@' in row.emails and row.emails != 'No Email' %}
-                                                    <a href="{% url 'compose_email' %}?email={{ row.emails }}" class="btn btn-sm btn-primary py-0 px-2" style="font-size: .65rem;">
-                                                        <i class="fas fa-paper-plane me-1"></i> Send
-                                                    </a>
-                                                {% else %}
-                                                    <button class="btn btn-sm btn-secondary py-0 px-2" disabled style="font-size: .65rem;">
-                                                        <i class="fas fa-paper-plane me-1"></i> Send
-                                                    </button>
-                                                {% endif %}
-                                            </td>
+                                            {% if user.is_superuser %}
+                                                <td class="text-center">
+                                                    {% if '@' in row.emails and row.emails != 'No Email' %}
+                                                        {% if row.email_has_chat %}
+                                                            <a href="{% url 'chat' contact_email=row.emails %}" class="btn btn-sm btn-info py-0 px-2" style="font-size: .65rem;">
+                                                                <i class="fas fa-inbox me-1"></i> Inbox
+                                                            </a>
+                                                        {% else %}
+                                                            <a href="{% url 'compose_email' %}?email={{ row.emails }}" class="btn btn-sm btn-primary py-0 px-2" style="font-size: .65rem;">
+                                                                <i class="fas fa-paper-plane me-1"></i> Send
+                                                            </a>
+                                                        {% endif %}
+                                                    {% else %}
+                                                        <button class="btn btn-sm btn-secondary py-0 px-2" disabled style="font-size: .65rem;">
+                                                            <i class="fas fa-paper-plane me-1"></i> Send
+                                                        </button>
+                                                    {% endif %}
+                                                </td>
+                                            {% endif %}
                                             <td class="text-center">
                                                 {% if row.domain_age and row.domain_age != 'N/A' %}
                                                     {{ row.domain_age }}

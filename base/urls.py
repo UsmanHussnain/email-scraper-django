@@ -9,6 +9,7 @@ urlpatterns = [
     path('download/', download_file, name='download_file'),
     path('update-email/', update_email, name='update_email'),
     path('compose-email/', compose_email, name='compose_email'),
+    path('chat/', chat, name='chat_list'),
     path('chat/<str:contact_email>/', chat, name='chat'),
     path('delete-chat/<str:contact_email>/', delete_chat, name='delete_chat'),
 ]

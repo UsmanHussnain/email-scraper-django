@@ -32,6 +32,7 @@ def add_superuser_view(request):
 
 
 @login_required
+@user_passes_test(is_superuser)
 def signup_view(request):
     if request.method == 'POST':
         form = CustomUserCreationForm(request.POST)

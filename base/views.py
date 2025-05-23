@@ -5,7 +5,7 @@ import imaplib
 import email as email_module
 from email.header import decode_header
 from django.shortcuts import render, redirect
-from django.contrib.auth.decorators import login_required
+from django.contrib.auth.decorators import login_required, user_passes_test
 from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 from django.core.mail import send_mail
@@ -16,6 +16,13 @@ from .email_scraper import process_excel
 from datetime import datetime
 import re
 import pytz
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
+
+def is_superuser(user):
+    return user.is_superuser
+
 
 # Dummy email templates for guest posting
 DUMMY_EMAIL_TEMPLATES = [
@@ -98,13 +105,24 @@ def display_emails(request):
             if website:
                 if not website.startswith(('http://', 'https://')):
                     website = f'http://{website}'
+                # Check if this email has a prior chat or email interaction
+                email_has_chat = False
+                if '@' in emails and emails != 'No Email':
+                    email_has_chat = EmailMessage.objects.filter(
+                        user=request.user,
+                        receiver=emails
+                    ).exists() or EmailMessage.objects.filter(
+                        user=request.user,
+                        sender=emails
+                    ).exists()
                 email_list.append({
                     'website': website,
                     'emails': emails,
                     'contact_url': contact_url,
                     'domain_age': domain_age,
                     'original_website': row['website'],
-                    'is_contact_url': 'http' in contact_url.lower() and contact_url != 'No Contact'
+                    'is_contact_url': 'http' in contact_url.lower() and contact_url != 'No Contact',
+                    'email_has_chat': email_has_chat
                 })
         download_url = os.path.join(settings.MEDIA_URL, (selected_file_obj.file.name if selected_file else latest_file.file.name)).replace('\\', '/')
         context = {
@@ -124,6 +142,7 @@ def display_emails(request):
         return render(request, 'base/email_display.html', {"error": str(e)})
 
 @login_required
+@user_passes_test(is_superuser)
 def update_email(request):
     if request.method == 'POST':
         try:
@@ -194,6 +213,7 @@ def update_email(request):
     return JsonResponse({'status': 'error', 'message': 'Invalid request method'}, status=405)
 
 @login_required
+@user_passes_test(is_superuser)
 def download_file(request):
     try:
         latest_file = UploadedFile.objects.latest('uploaded_at')
@@ -208,6 +228,7 @@ def download_file(request):
         return HttpResponse(f"Error: {str(e)}", status=500)
 
 @login_required
+@user_passes_test(is_superuser)
 def compose_email(request):
     if request.method == 'POST':
         user_email = request.POST.get('email')
@@ -360,7 +381,7 @@ def clean_email_body(msg):
                         html_body = payload.decode(charset, errors='ignore')
                         # Simple HTML to text conversion
                         body = re.sub(r'<[^>]+>', '', html_body)
-                        body = body.replace('&nbsp;', ' ').replace('&lt;', '<').replace('&gt;', '>')
+                        body = body.replace(' ', ' ').replace('<', '<').replace('>', '>')
                 except Exception:
                     continue
     else:
@@ -399,7 +420,7 @@ def get_email_date(msg):
     return datetime.now(pakistan_tz)
 
 def delete_emails_from_gmail(email_address, gmail_user, gmail_password):
-    """Delete emails from Gmail inbox using IMAP"""
+    """Delete emails from Gmail inbox using IMAP (not used in this context anymore)"""
     try:
         # Connect to Gmail
         imap_server = imaplib.IMAP4_SSL('imap.gmail.com')
@@ -452,8 +473,9 @@ def delete_emails_from_gmail(email_address, gmail_user, gmail_password):
         return False, 0
 
 @login_required
+@user_passes_test(is_superuser)
 def delete_chat(request, contact_email):
-    """Delete entire chat conversation with a contact"""
+    """Delete entire chat conversation with a contact (only from database)"""
     if request.method == 'POST':
         try:
             # Delete all messages from database for this conversation
@@ -468,26 +490,8 @@ def delete_chat(request, contact_email):
             message_count = deleted_messages.count()
             deleted_messages.delete()
             
-            # Try to delete emails from Gmail as well
-            gmail_deleted = False
-            gmail_count = 0
-            try:
-                gmail_deleted, gmail_count = delete_emails_from_gmail(
-                    contact_email, 
-                    settings.EMAIL_HOST_USER, 
-                    settings.EMAIL_HOST_PASSWORD
-                )
-            except Exception as e:
-                print(f"Gmail deletion failed: {e}")
-            
-            # Prepare success message
-            success_msg = f"Chat with {contact_email} deleted successfully. "
-            success_msg += f"Deleted {message_count} messages from database."
-            
-            if gmail_deleted and gmail_count > 0:
-                success_msg += f" Also deleted {gmail_count} emails from Gmail."
-            elif not gmail_deleted:
-                success_msg += " Note: Could not delete emails from Gmail automatically."
+            # Prepare success message (no Gmail deletion)
+            success_msg = f"Chat with {contact_email} deleted successfully. Deleted {message_count} messages from database."
             
             messages.success(request, success_msg)
             
@@ -495,7 +499,7 @@ def delete_chat(request, contact_email):
             return JsonResponse({
                 'status': 'success',
                 'message': success_msg,
-                'redirect_url': '/emails/'  # Redirect to emails list
+                'redirect_url': '/chat/'  # Redirect to chat list
             })
             
         except Exception as e:
@@ -512,7 +516,8 @@ def delete_chat(request, contact_email):
     }, status=405)
 
 @login_required
-def chat(request, contact_email):
+@user_passes_test(is_superuser)
+def chat(request, contact_email=None):
     # Handle new chat initiation
     if contact_email == 'new':
         new_email = request.GET.get('email', '').strip()
@@ -521,87 +526,82 @@ def chat(request, contact_email):
             return redirect('display_emails')
         return redirect('chat', contact_email=new_email)
 
-    # Fetch emails from database first
+    # Fetch emails from database
     chat_history = EmailMessage.objects.filter(
         user=request.user,
         receiver=contact_email
     ) | EmailMessage.objects.filter(
         user=request.user,
         sender=contact_email
-    )
-    
-    # Create a set of existing message identifiers
-    existing_messages = set()
-    for msg in chat_history:
-        # Use first 100 characters as unique identifier
-        clean_msg = re.sub(r'\s+', ' ', msg.message.strip())[:100]
-        existing_messages.add((msg.sender.lower(), clean_msg.lower()))
+    ) if contact_email else EmailMessage.objects.none()
+    chat_history = chat_history.order_by('timestamp').distinct()
 
-    # Fetch new emails from inbox (IMAP)
-    try:
-        # Connect to IMAP server
-        imap_server = imaplib.IMAP4_SSL('imap.gmail.com')
-        imap_server.login(settings.EMAIL_HOST_USER, settings.EMAIL_HOST_PASSWORD)
-        imap_server.select('INBOX')
-        
-        # Search for emails from the contact
-        search_criteria = f'(FROM "{contact_email}")'
-        _, message_numbers = imap_server.search(None, search_criteria)
-        
-        if message_numbers[0]:
-            for num in message_numbers[0].split():
-                try:
-                    # Fetch email
-                    _, msg_data = imap_server.fetch(num, '(RFC822)')
-                    if not msg_data or len(msg_data) < 2:
-                        continue
-                    
-                    raw_email = msg_data[0][1]
-                    if not isinstance(raw_email, bytes):
-                        continue
+    # Fetch new emails from inbox (IMAP) with unique check using Message-ID
+    if contact_email:
+        try:
+            # Connect to IMAP server
+            imap_server = imaplib.IMAP4_SSL('imap.gmail.com')
+            imap_server.login(settings.EMAIL_HOST_USER, settings.EMAIL_HOST_PASSWORD)
+            imap_server.select('INBOX')
+            
+            # Search for all emails from the contact
+            search_criteria = f'(FROM "{contact_email}")'
+            _, message_numbers = imap_server.search(None, search_criteria)
+            
+            if message_numbers[0]:
+                for num in message_numbers[0].split():
+                    try:
+                        # Fetch email
+                        _, msg_data = imap_server.fetch(num, '(RFC822)')
+                        if not msg_data or len(msg_data) < 2:
+                            continue
+                        
+                        raw_email = msg_data[0][1]
+                        if not isinstance(raw_email, bytes):
+                            continue
 
-                    # Parse email
-                    msg = email_module.message_from_bytes(raw_email)
-                    
-                    # Get clean email body (only latest reply)
-                    body = clean_email_body(msg)
-                    if not body or len(body.strip()) < 3:
+                        # Parse email
+                        msg = email_module.message_from_bytes(raw_email)
+                        
+                        # Get clean email body (only latest reply)
+                        body = clean_email_body(msg)
+                        if not body or len(body.strip()) < 3:
+                            continue
+                        
+                        # Get sender
+                        sender = msg.get('From', contact_email)
+                        if '<' in sender and '>' in sender:
+                            sender = sender.split('<')[1].split('>')[0].strip()
+                        
+                        # Get Message-ID for uniqueness
+                        message_id = msg.get('Message-ID', None)
+                        if not message_id:
+                            message_id = f"{sender}_{hash(body)}"  # Fallback if Message-ID is missing
+
+                        # Check if this email already exists in the database
+                        if not EmailMessage.objects.filter(user=request.user, message=body, sender=sender).exists():
+                            # Create new EmailMessage record with Pakistan timezone
+                            EmailMessage.objects.create(
+                                user=request.user,
+                                sender=sender,
+                                receiver=settings.DEFAULT_FROM_EMAIL,
+                                message=body,
+                                is_sent=False,
+                                timestamp=get_email_date(msg)
+                            )
+                        
+                    except Exception as e:
+                        print(f"Error processing individual email: {e}")
                         continue
-                    
-                    # Get sender
-                    sender = msg.get('From', contact_email)
-                    if '<' in sender and '>' in sender:
-                        sender = sender.split('<')[1].split('>')[0].strip()
-                    
-                    # Check if this message already exists
-                    clean_body = re.sub(r'\s+', ' ', body.strip())[:100]
-                    message_id = (sender.lower(), clean_body.lower())
-                    
-                    if message_id in existing_messages:
-                        continue
-                    
-                    # Create new EmailMessage record with Pakistan timezone
-                    EmailMessage.objects.create(
-                        user=request.user,
-                        sender=sender,
-                        receiver=settings.DEFAULT_FROM_EMAIL,
-                        message=body,
-                        is_sent=False,
-                        timestamp=get_email_date(msg)
-                    )
-                    
-                except Exception as e:
-                    print(f"Error processing individual email: {e}")
-                    continue
-        
-        imap_server.logout()
-        
-    except Exception as e:
-        print(f"IMAP Error: {e}")
-        pass
+            
+            imap_server.logout()
+            
+        except Exception as e:
+            print(f"IMAP Error: {e}")
+            pass
 
     # Handle POST request (sending new message)
-    if request.method == 'POST':
+    if request.method == 'POST' and contact_email:
         new_message = request.POST.get('message', '').strip()
         if new_message:
             try:
@@ -630,16 +630,6 @@ def chat(request, contact_email):
                 
             except Exception as e:
                 messages.error(request, f'Error sending message: {str(e)}')
-
-    # Get updated chat history
-    chat_history = EmailMessage.objects.filter(
-        user=request.user,
-        receiver=contact_email
-    ) | EmailMessage.objects.filter(
-        user=request.user,
-        sender=contact_email
-    )
-    chat_history = chat_history.order_by('timestamp')
 
     # Get all unique emails for sidebar
     sent_emails = EmailMessage.objects.filter(user=request.user, is_sent=True).values_list('receiver', flat=True).distinct()

@@ -45,28 +45,34 @@
         <div class="col-lg-9 col-md-8">
             <div class="card h-100 shadow-sm" style="background-color: #f8f9fa;">
                 <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0">
-                        <i class="fas fa-comments me-2"></i>Chat with {{ selected_email }}
-                    </h5>
-                    <div>
-                        <button class="btn btn-sm btn-light text-success border-success me-2" data-bs-toggle="modal" data-bs-target="#emailTemplateModal">
-                            <i class="fas fa-file-alt me-1"></i> Templates
-                        </button>
-                        <a href="{% url 'compose_email' %}?email={{ selected_email }}" class="btn btn-sm btn-warning me-2">
-                            <i class="fas fa-paper-plane me-1"></i> Compose Email
-                        </a>
-                        <button class="btn btn-sm btn-danger delete-chat-btn" data-email="{{ selected_email }}" title="Delete this chat">
-                            <i class="fas fa-trash-alt"></i> Delete
-                        </button>
-                    </div>
+                    {% if selected_email %}
+                        <h5 class="mb-0">
+                            <i class="fas fa-comments me-2"></i>Chat with {{ selected_email }}
+                        </h5>
+                        <div>
+                            <button class="btn btn-sm btn-light text-success border-success me-2" data-bs-toggle="modal" data-bs-target="#emailTemplateModal">
+                                <i class="fas fa-file-alt me-1"></i> Templates
+                            </button>
+                            <a href="{% url 'compose_email' %}?email={{ selected_email }}" class="btn btn-sm btn-warning me-2">
+                                <i class="fas fa-paper-plane me-1"></i> Compose Email
+                            </a>
+                            <button class="btn btn-sm btn-danger delete-chat-btn" data-email="{{ selected_email }}" title="Delete this chat">
+                                <i class="fas fa-trash-alt"></i> Delete
+                            </button>
+                        </div>
+                    {% else %}
+                        <h5 class="mb-0">
+                            <i class="fas fa-comments me-2"></i>Select a contact to start chatting
+                        </h5>
+                    {% endif %}
                 </div>
                 
                 <!-- Chat messages container -->
                 <div class="card-body p-0 position-relative">
                     <div id="chatContainer" class="p-3" style="height: 500px; overflow-y: auto;">
-                        {% if chat_history %}
+                        {% if selected_email and chat_history %}
                             {% for message in chat_history %}
-                                <div class="mb-3 {% if message.is_sent %}text-end{% else %}text-start{% endif %}">
+                                <div class="mb-3 {% if message.is_sent %}text-start{% else %}text-start{% endif %}">
                                     <div class="d-flex {% if message.is_sent %}justify-content-end{% else %}justify-content-start{% endif %}">
                                         <div class="{% if message.is_sent %}bg-success{% else %}bg-light{% endif %} text-{% if message.is_sent %}white{% else %}dark{% endif %} p-3 rounded-3 shadow-sm" 
                                              style="max-width: 70%;">
@@ -89,9 +95,14 @@
                             {% endfor %}
                         {% else %}
                             <div class="h-100 d-flex flex-column justify-content-center align-items-center text-muted">
-                                <i class="fas fa-comment-slash fa-3x mb-3"></i>
-                                <h5>No messages yet</h5>
-                                <p>Start the conversation with {{ selected_email }}</p>
+                                {% if not selected_email %}
+                                    <i class="fas fa-user-friends fa-3x mb-3"></i>
+                                    <h5>Select a contact to view messages</h5>
+                                {% else %}
+                                    <i class="fas fa-comment-slash fa-3x mb-3"></i>
+                                    <h5>No messages yet</h5>
+                                    <p>Start the conversation with {{ selected_email }}</p>
+                                {% endif %}
                             </div>
                         {% endif %}
                     </div>
@@ -99,24 +110,26 @@
                 
                 <!-- Message input area -->
                 <div class="card-footer bg-light">
-                    <form method="POST" id="chatForm">
-                        {% csrf_token %}
-                        <div class="input-group">
-                            <textarea class="form-control" id="messageInput" name="message" rows="2" 
-                                      placeholder="Type your message here..." required style="border-color: #ced4da;"></textarea>
-                            <button type="submit" class="btn btn-success">
-                                <i class="fas fa-paper-plane"></i> Send
-                            </button>
-                        </div>
-                        <div class="d-flex justify-content-between mt-2">
-                            <small class="text-muted">
-                                Press Shift+Enter for new line
-                            </small>
-                            <small class="text-muted">
-                                Messages are sent as emails
-                            </small>
-                        </div>
-                    </form>
+                    {% if selected_email %}
+                        <form method="POST" id="chatForm">
+                            {% csrf_token %}
+                            <div class="input-group">
+                                <textarea class="form-control" id="messageInput" name="message" rows="2" 
+                                          placeholder="Type your message here..." required style="border-color: #ced4da;"></textarea>
+                                <button type="submit" class="btn btn-success">
+                                    <i class="fas fa-paper-plane"></i> Send
+                                </button>
+                            </div>
+                            <div class="d-flex justify-content-between mt-2">
+                                <small class="text-muted">
+                                    Press Shift+Enter for new line
+                                </small>
+                                <small class="text-muted">
+                                    Messages are sent as emails
+                                </small>
+                            </div>
+                        </form>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -361,7 +374,7 @@
                     if (response.status === 'success') {
                         showToast(response.message, 'success');
                         setTimeout(function() {
-                            window.location.href = response.redirect_url;
+                            window.location.href = '/chat/';  // Redirect to chat list
                         }, 2000);
                     } else {
                         showToast(response.message, 'danger');
@@ -379,7 +392,6 @@
 
         function checkForNewMessages() {
             // Simple check - reload the page to fetch new emails
-            // You could implement AJAX here for better UX
             const currentMessageCount = $('.mb-3').length;
             $.get(window.location.href, function(data) {
                 const newDoc = $(data);
