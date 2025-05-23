@@ -8,7 +8,7 @@ from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.conf import settings
 from django.http import HttpResponse, JsonResponse
-from django.core.mail import send_mail
+from django.core.mail import send_mail, EmailMessage as DjangoEmailMessage
 from django.contrib import messages
 import pandas as pd
 from .models import UploadedFile, EmailMessage
@@ -22,7 +22,6 @@ User = get_user_model()
 
 def is_superuser(user):
     return user.is_superuser
-
 
 # Dummy email templates for guest posting
 DUMMY_EMAIL_TEMPLATES = [
@@ -398,6 +397,33 @@ def clean_email_body(msg):
     
     return body.strip()
 
+def extract_attachments(msg, message_obj):
+    """Extract attachments from an email message and save them"""
+    attachments = []
+    if msg.is_multipart():
+        for part in msg.walk():
+            if part.get_content_maintype() == 'multipart':
+                continue
+            if part.get('Content-Disposition') is None:
+                continue
+            filename = part.get_filename()
+            if filename:
+                # Decode the filename if it's encoded
+                decoded_filename = decode_header(filename)[0][0]
+                if isinstance(decoded_filename, bytes):
+                    decoded_filename = decoded_filename.decode()
+                # Save the file to the media directory
+                file_path = os.path.join(settings.MEDIA_ROOT, 'email_attachments', decoded_filename)
+                os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                with open(file_path, 'wb') as f:
+                    f.write(part.get_payload(decode=True))
+                # Update the message object with the attachment
+                message_obj.attachment = os.path.join('email_attachments', decoded_filename)
+                message_obj.has_attachment = True
+                message_obj.save()
+                attachments.append(decoded_filename)
+    return attachments
+
 def get_email_date(msg):
     """Extract and parse email date with Pakistan timezone"""
     try:
@@ -581,7 +607,7 @@ def chat(request, contact_email=None):
                         # Check if this email already exists in the database
                         if not EmailMessage.objects.filter(user=request.user, message=body, sender=sender).exists():
                             # Create new EmailMessage record with Pakistan timezone
-                            EmailMessage.objects.create(
+                            new_message = EmailMessage.objects.create(
                                 user=request.user,
                                 sender=sender,
                                 receiver=settings.DEFAULT_FROM_EMAIL,
@@ -589,6 +615,8 @@ def chat(request, contact_email=None):
                                 is_sent=False,
                                 timestamp=get_email_date(msg)
                             )
+                            # Extract and save attachments
+                            extract_attachments(msg, new_message)
                         
                     except Exception as e:
                         print(f"Error processing individual email: {e}")
@@ -600,36 +628,47 @@ def chat(request, contact_email=None):
             print(f"IMAP Error: {e}")
             pass
 
-    # Handle POST request (sending new message)
+    # Handle POST request (sending new message with optional attachment)
     if request.method == 'POST' and contact_email:
         new_message = request.POST.get('message', '').strip()
-        if new_message:
-            try:
-                # Send email
-                send_mail(
-                    subject='Follow-up Message',
-                    message=new_message,
-                    from_email=settings.DEFAULT_FROM_EMAIL,
-                    recipient_list=[contact_email],
-                    fail_silently=False,
-                )
-                
-                # Save to database with Pakistan timezone
-                pakistan_tz = pytz.timezone('Asia/Karachi')
-                EmailMessage.objects.create(
-                    user=request.user,
-                    sender=settings.DEFAULT_FROM_EMAIL,
-                    receiver=contact_email,
-                    message=new_message,
-                    is_sent=True,
-                    timestamp=datetime.now(pakistan_tz)
-                )
-                
-                messages.success(request, f'Message sent to {contact_email}.')
-                return redirect('chat', contact_email=contact_email)
-                
-            except Exception as e:
-                messages.error(request, f'Error sending message: {str(e)}')
+        attachment = request.FILES.get('attachment') if 'attachment' in request.FILES else None
+        
+        try:
+            # Use Django's EmailMessage to send email with attachment
+            email = DjangoEmailMessage(
+                subject='Follow-up Message',
+                body=new_message if new_message else "Please find the attached file.",
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                to=[contact_email],
+            )
+            
+            if attachment:
+                email.attach(attachment.name, attachment.read(), attachment.content_type)
+            
+            email.send(fail_silently=False)
+            
+            # Save to database with Pakistan timezone
+            pakistan_tz = pytz.timezone('Asia/Karachi')
+            email_message = EmailMessage.objects.create(
+                user=request.user,
+                sender=settings.DEFAULT_FROM_EMAIL,
+                receiver=contact_email,
+                message=new_message if new_message else "Sent an attachment.",
+                is_sent=True,
+                timestamp=datetime.now(pakistan_tz),
+                has_attachment=bool(attachment)
+            )
+            
+            if attachment:
+                email_message.attachment = attachment
+                email_message.has_attachment = True
+                email_message.save()
+            
+            messages.success(request, f'Message sent to {contact_email}.')
+            return redirect('chat', contact_email=contact_email)
+            
+        except Exception as e:
+            messages.error(request, f'Error sending message: {str(e)}')
 
     # Get all unique emails for sidebar
     sent_emails = EmailMessage.objects.filter(user=request.user, is_sent=True).values_list('receiver', flat=True).distinct()

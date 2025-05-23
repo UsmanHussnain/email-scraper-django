@@ -89,6 +89,20 @@
                                                 </small>
                                             </div>
                                             <p class="mb-0">{{ message.message|linebreaksbr }}</p>
+                                            {% if message.has_attachment and message.attachment %}
+                                                <div class="mt-2">
+                                                    <i class="fas fa-file me-1"></i>
+                                                    <span>Attachment: {{ message.attachment.name }}</span>
+                                                    <div class="mt-1">
+                                                        <a href="{{ message.attachment.url }}" class="btn btn-sm btn-primary me-2" download>
+                                                            <i class="fas fa-download me-1"></i> Download
+                                                        </a>
+                                                        <a href="{{ message.attachment.url }}" target="_blank" class="btn btn-sm btn-info">
+                                                            <i class="fas fa-eye me-1"></i> Preview
+                                                        </a>
+                                                    </div>
+                                                </div>
+                                            {% endif %}
                                         </div>
                                     </div>
                                 </div>
@@ -111,16 +125,25 @@
                 <!-- Message input area -->
                 <div class="card-footer bg-light">
                     {% if selected_email %}
-                        <form method="POST" id="chatForm">
+                        <form method="POST" id="chatForm" enctype="multipart/form-data">
                             {% csrf_token %}
                             <div class="input-group">
-                                <textarea class="form-control" id="messageInput" name="message" rows="2" 
-                                          placeholder="Type your message here..." required style="border-color: #ced4da;"></textarea>
-                                <button type="submit" class="btn btn-success">
-                                    <i class="fas fa-paper-plane"></i> Send
-                                </button>
+                                <textarea class="form-control" id="messageInput" name="message" rows="1" 
+                                          placeholder="Type your message here..." style="border-color: #ced4da;"></textarea>
+                                <div class="input-group-append">
+                                    <label for="attachmentInput" class="btn btn-outline-secondary m-0">
+                                        <i class="fas fa-paperclip"></i>
+                                    </label>
+                                    <input type="file" id="attachmentInput" name="attachment" style="display: none;" onchange="updateFileName(this)">
+                                    <button type="submit" class="btn btn-success">
+                                        <i class="fas fa-paper-plane"></i> Send
+                                    </button>
+                                </div>
                             </div>
                             <div class="d-flex justify-content-between mt-2">
+                                <small class="text-muted" id="fileName">
+                                    {% if form.attachment.value %}Selected: {{ form.attachment.value }}{% else %}No file selected{% endif %}
+                                </small>
                                 <small class="text-muted">
                                     Press Shift+Enter for new line
                                 </small>
@@ -258,7 +281,7 @@
             },
             template3: {
                 title: "Interested in a Guest Post Partnership?",
-                content: `Dear [Website Owner],\n\nGreetings! I'm [Your Name], and I specialize in crafting informative and engaging content. I believe a guest post on your website could be a great way to share valuable insights with your audience.\n\nI'm happy to write on a topic that fits your site's focus. Please let me know your guest posting guidelines or any preferred topics.\n\nExcited to collaborate!\n\nRegards,\n{{ user.first_name|default:user.username }}`
+                content: `Dear [Website Owner],\n\nGreetings! I'm [Your Name], and I specialize in crafting informative and engaging content. I believe a guest post on your website could be a great way to share valuable insights with your audience.\n\nI'm happy to write on a topic that CACHEfit your site's focus. Please let me know your guest posting guidelines or any preferred topics.\n\nExcited to collaborate!\n\nRegards,\n{{ user.first_name|default:user.username }}`
             },
             template4: {
                 title: "Let's Boost Your Site with a Guest Post",
@@ -325,13 +348,20 @@
             }
         });
         
+        // Update file name display when a file is selected
+        window.updateFileName = function(input) {
+            const fileName = input.files.length > 0 ? input.files[0].name : 'No file selected';
+            $('#fileName').text(`Selected: ${fileName}`);
+        };
+        
         // Form submission with better UX
         $('#chatForm').submit(function(e) {
             const message = $('#messageInput').val().trim();
+            const attachment = $('#attachmentInput')[0].files.length > 0;
             
-            if (!message) {
+            if (!message && !attachment) {
                 e.preventDefault();
-                showToast('Please enter a message.', 'warning');
+                showToast('Please enter a message or attach a file.', 'warning');
                 return false;
             }
             
