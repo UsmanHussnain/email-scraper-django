@@ -88,11 +88,19 @@
                                                     {{ message.timestamp|date:"M j, H:i" }}
                                                 </small>
                                             </div>
-                                            <p class="mb-0">{{ message.message|linebreaksbr }}</p>
+                                            <!-- Render the message content with inline images -->
+                                            <div class="mb-0 message-content">
+                                                {% if message.inline_images %}
+                                                    {{ message.message|safe }}
+                                                {% else %}
+                                                    {{ message.message|safe }}
+                                                {% endif %}
+                                            </div>
+                                            <!-- Display attachments -->
                                             {% if message.has_attachment and message.attachment %}
                                                 <div class="mt-2">
                                                     <i class="fas fa-file me-1"></i>
-                                                    <span>Attachment: {{ message.attachment.name }}</span>
+                                                    <span>Attachment: {{ message.attachment.name|cut:"/email_attachments/" }}</span>
                                                     <div class="mt-1">
                                                         <a href="{{ message.attachment.url }}" class="btn btn-sm btn-primary me-2" download>
                                                             <i class="fas fa-download me-1"></i> Download
@@ -127,25 +135,66 @@
                     {% if selected_email %}
                         <form method="POST" id="chatForm" enctype="multipart/form-data">
                             {% csrf_token %}
-                            <div class="input-group">
-                                <textarea class="form-control" id="messageInput" name="message" rows="1" 
-                                          placeholder="Type your message here..." style="border-color: #ced4da;"></textarea>
-                                <div class="input-group-append">
-                                    <label for="attachmentInput" class="btn btn-outline-secondary m-0">
-                                        <i class="fas fa-paperclip"></i>
-                                    </label>
-                                    <input type="file" id="attachmentInput" name="attachment" style="display: none;" onchange="updateFileName(this)">
-                                    <button type="submit" class="btn btn-success">
-                                        <i class="fas fa-paper-plane"></i> Send
-                                    </button>
+                            <div class="editor-container">
+                                <!-- Quill Editor Toolbar -->
+                                <div id="editor-toolbar" style="border: 1px solid #ced4da; border-bottom: none; border-radius: 4px 4px 0 0; background: #f8f9fa; padding: 2px 5px; line-height: 1; position: relative;">
+                                    <span class="ql-formats">
+                                        <select class="ql-font">
+                                            <option value="sans-serif" selected>Sans Serif</option>
+                                            <option value="serif">Serif</option>
+                                            <option value="monospace">Monospace</option>
+                                        </select>
+                                        <select class="ql-size">
+                                            <option value="small">Small</option>
+                                            <option value="normal" selected>Normal</option>
+                                            <option value="large">Large</option>
+                                            <option value="huge">Huge</option>
+                                        </select>
+                                    </span>
+                                    <span class="ql-formats">
+                                        <button class="ql-bold"></button>
+                                        <button class="ql-italic"></button>
+                                        <button class="ql-underline"></button>
+                                        <button class="ql-strike"></button>
+                                    </span>
+                                    <span class="ql-formats">
+                                        <select class="ql-color"></select>
+                                        <select class="ql-background"></select>
+                                    </span>
+                                    <span class="ql-formats">
+                                        <button class="ql-list" value="ordered"></button>
+                                        <button class="ql-list" value="bullet"></button>
+                                        <select class="ql-align">
+                                            <option value="" selected></option>
+                                            <option value="center"></option>
+                                            <option value="right"></option>
+                                            <option value="justify"></option>
+                                        </select>
+                                    </span>
+                                    <span class="ql-formats">
+                                        <button class="ql-link"></button>
+                                        <button class="ql-image"></button>
+                                        <button class="ql-clean"></button>
+                                    </span>
                                 </div>
+                                <!-- Quill Editor Container -->
+                                <div id="editor" style="height: 300px; border: 1px solid #ced4da; border-top: none; border-radius: 0 0 4px 4px;"></div>
+                                <!-- Hidden input to store Quill content -->
+                                <input type="hidden" name="message" id="messageInput">
+                            </div>
+                            <!-- Buttons below the editor -->
+                            <div class="d-flex justify-content-end mt-2 gap-2">
+                                <label for="attachmentInput" class="btn btn-outline-secondary m-0">
+                                    <i class="fas fa-paperclip"></i> Attach File
+                                </label>
+                                <input type="file" id="attachmentInput" name="attachment" style="display: none;" onchange="updateFileName(this)">
+                                <button type="submit" class="btn btn-success">
+                                    <i class="fas fa-paper-plane"></i> Send
+                                </button>
                             </div>
                             <div class="d-flex justify-content-between mt-2">
                                 <small class="text-muted" id="fileName">
                                     {% if form.attachment.value %}Selected: {{ form.attachment.value }}{% else %}No file selected{% endif %}
-                                </small>
-                                <small class="text-muted">
-                                    Press Shift+Enter for new line
                                 </small>
                                 <small class="text-muted">
                                     Messages are sent as emails
@@ -262,6 +311,9 @@
     </div>
 </div>
 
+<!-- Include Quill.js and jQuery -->
+<link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+<script src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script>
     $(document).ready(function() {
@@ -269,23 +321,75 @@
         const toast = new bootstrap.Toast(toastLiveExample);
         const deleteConfirmModal = new bootstrap.Modal(document.getElementById('deleteConfirmModal'));
 
+        // Initialize Quill editor
+        var quill = new Quill('#editor', {
+            theme: 'snow',
+            modules: {
+                toolbar: '#editor-toolbar'
+            },
+            placeholder: 'Type your message here...'
+        });
+
+        // Handle dropdown visibility (especially for color and background pickers)
+        function handleDropdownVisibility() {
+            // Hide all dropdowns when clicking anywhere on the document
+            $(document).on('click', function(e) {
+                // If the click is not on a picker label or inside a picker, hide all dropdowns
+                if (!$(e.target).closest('.ql-picker-label').length && !$(e.target).closest('.ql-picker-options').length) {
+                    $('.ql-picker-options').removeClass('ql-expanded').hide();
+                    $('.ql-picker-label').removeClass('ql-expanded');
+                }
+            });
+
+            // Show/hide dropdowns on click
+            $('.ql-picker-label').on('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                const $picker = $(this).closest('.ql-picker');
+                const $options = $picker.find('.ql-picker-options');
+
+                // Toggle the current dropdown
+                if ($options.is(':visible')) {
+                    $options.removeClass('ql-expanded').hide();
+                    $(this).removeClass('ql-expanded');
+                } else {
+                    // Hide all other dropdowns
+                    $('.ql-picker-options').removeClass('ql-expanded').hide();
+                    $('.ql-picker-label').removeClass('ql-expanded');
+                    // Show the current dropdown
+                    $options.addClass('ql-expanded').show();
+                    $(this).addClass('ql-expanded');
+                }
+            });
+
+            // Hide dropdown after selecting an option
+            $('.ql-picker-item').on('click', function() {
+                const $options = $(this).closest('.ql-picker-options');
+                $options.removeClass('ql-expanded').hide();
+                $options.siblings('.ql-picker-label').removeClass('ql-expanded');
+            });
+        }
+
+        // Call the function to handle dropdown visibility
+        handleDropdownVisibility();
+
         // Template data
         const templates = {
             template1: {
                 title: "Guest Post Opportunity",
-                content: `Hello,\n\nI hope this email finds you well! My name is [Your Name], and I'm reaching out to discuss a potential guest post opportunity for your website. We specialize in creating high-quality, engaging content that aligns with your audience's interests.\n\nI'd love to contribute a well-researched article that provides value to your readers. Please let me know if you're open to this idea, and I can share some topic suggestions.\n\nLooking forward to hearing from you!\n\nRegards,\n{{ user.first_name|default:user.username }}`
+                content: `<p>Hello,</p><p>I hope this email finds you well! My name is [Your Name], and I'm reaching out to discuss a potential guest post opportunity for your website. We specialize in creating high-quality, engaging content that aligns with your audience's interests.</p><p>I'd love to contribute a well-researched article that provides value to your readers. Please let me know if you're open to this idea, and I can share some topic suggestions.</p><p>Looking forward to hearing from you!</p><p>Regards,</p><p>{{ user.first_name|default:user.username }}</p>`
             },
             template2: {
                 title: "Collaboration Proposal: Guest Blog Post",
-                content: `Hi there,\n\nI'm [Your Name], a content creator passionate about [your niche]. I've been following your website and love the content you share. I'd like to propose a guest blog post that complements your site's theme and adds value for your readers.\n\nIf you're interested, I can send over a few topic ideas or work with any guidelines you provide.\n\nLet's connect and discuss further!\n\nRegards,\n{{ user.first_name|default:user.username }}`
+                content: `<p>Hi there,</p><p>I'm [Your Name], a content creator passionate about [your niche]. I've been following your website and love the content you share. I'd like to propose a guest blog post that complements your site's theme and adds value for your readers.</p><p>If you're interested, I can send over a few topic ideas or work with any guidelines you provide.</p><p>Let's connect and discuss further!</p><p>Regards,</p><p>{{ user.first_name|default:user.username }}</p>`
             },
             template3: {
                 title: "Interested in a Guest Post Partnership?",
-                content: `Dear [Website Owner],\n\nGreetings! I'm [Your Name], and I specialize in crafting informative and engaging content. I believe a guest post on your website could be a great way to share valuable insights with your audience.\n\nI'm happy to write on a topic that CACHEfit your site's focus. Please let me know your guest posting guidelines or any preferred topics.\n\nExcited to collaborate!\n\nRegards,\n{{ user.first_name|default:user.username }}`
+                content: `<p>Dear [Website Owner],</p><p>Greetings! I'm [Your Name], and I specialize in crafting informative and engaging content. I believe a guest post on your website could be a great way to share valuable insights with your audience.</p><p>I'm happy to write on a topic that fits your site's focus. Please let me know your guest posting guidelines or any preferred topics.</p><p>Excited to collaborate!</p><p>Regards,</p><p>{{ user.first_name|default:user.username }}</p>`
             },
             template4: {
                 title: "Let's Boost Your Site with a Guest Post",
-                content: `Hello,\n\nMy name is [Your Name], and I'm a writer with a passion for creating content that resonates with readers. I'd love to contribute a guest post to your website, offering fresh perspectives and actionable insights.\n\nIf this sounds interesting, I can provide topic ideas or follow your editorial guidelines.\n\nLooking forward to your response!\n\nRegards,\n{{ user.first_name|default:user.username }}`
+                content: `<p>Hello,</p><p>My name is [Your Name], and I'm a writer with a passion for creating content that resonates with readers. I'd love to contribute a guest post to your website, offering fresh perspectives and actionable insights.</p><p>If this sounds interesting, I can provide topic ideas or follow your editorial guidelines.</p><p>Looking forward to your response!</p><p>Regards,</p><p>{{ user.first_name|default:user.username }}</p>`
             }
         };
         
@@ -312,7 +416,7 @@
             
             // Update preview
             $('#templateTitle').text(template.title);
-            $('#templatePreview').html(template.content.replace(/\n/g, '<br>'));
+            $('#templatePreview').html(template.content);
             
             // Update styles for active template
             $('[data-template]').css({'background-color': '', 'color': ''});
@@ -324,7 +428,7 @@
             if ($('[data-template]').length > 0) {
                 const firstTemplate = $('[data-template]').first().data('template');
                 $('#templateTitle').text(templates[firstTemplate].title);
-                $('#templatePreview').html(templates[firstTemplate].content.replace(/\n/g, '<br>'));
+                $('#templatePreview').html(templates[firstTemplate].content);
                 $('[data-template]').first().addClass('active').css({'background-color': '#28a745', 'color': 'white'});
             }
         });
@@ -333,18 +437,10 @@
         $('#useTemplateBtn').click(function() {
             const activeTemplate = $('[data-template].active').data('template');
             if (activeTemplate && templates[activeTemplate]) {
-                $('#messageInput').val(templates[activeTemplate].content);
+                quill.root.innerHTML = templates[activeTemplate].content;
                 $('#emailTemplateModal').modal('hide');
-                $('#messageInput').focus();
+                quill.focus();
                 showToast('Template applied successfully!', 'success');
-            }
-        });
-        
-        // Handle Shift+Enter for new line, Enter to submit
-        $('#messageInput').keydown(function(e) {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                $('#chatForm').submit();
             }
         });
         
@@ -354,30 +450,68 @@
             $('#fileName').text(`Selected: ${fileName}`);
         };
         
-        // Form submission with better UX
+        // Form submission with Quill content using AJAX
         $('#chatForm').submit(function(e) {
-            const message = $('#messageInput').val().trim();
+            e.preventDefault(); // Prevent default form submission
+
+            // Get Quill content as HTML
+            const message = quill.root.innerHTML.trim();
             const attachment = $('#attachmentInput')[0].files.length > 0;
-            
-            if (!message && !attachment) {
-                e.preventDefault();
-                showToast('Please enter a message or attach a file.', 'warning');
-                return false;
+
+            if (!message || message === '<p><br></p>') {
+                if (!attachment) {
+                    showToast('Please enter a message or attach a file.', 'warning');
+                    return false;
+                }
             }
-            
-            // Show sending indicator
+
+            // Set the Quill content to the hidden input
+            $('#messageInput').val(message);
+
+            // Prepare form data for AJAX
+            const formData = new FormData(this);
             const submitBtn = $(this).find('button[type="submit"]');
             const originalText = submitBtn.html();
+
+            // Show sending indicator
             submitBtn.html('<i class="fas fa-spinner fa-spin"></i> Sending...').prop('disabled', true);
-            
-            // Let the form submit normally
-            // The page will reload and show the new message
+
+            // Send AJAX request
+            $.ajax({
+                url: $(this).attr('action') || window.location.href, // Use form action or current URL
+                type: 'POST',
+                data: formData,
+                processData: false,
+                contentType: false,
+                success: function(response) {
+                    if (response.status === 'success') {
+                        showToast(response.message, 'success');
+                        // Redirect to the chat page to show updated messages
+                        setTimeout(function() {
+                            window.location.href = response.redirect_url || window.location.href;
+                        }, 1000);
+                    } else {
+                        showToast(response.message, 'danger');
+                        submitBtn.html(originalText).prop('disabled', false);
+                    }
+                },
+                error: function(xhr) {
+                    showToast('An error occurred while sending the message.', 'danger');
+                    submitBtn.html(originalText).prop('disabled', false);
+                },
+                complete: function() {
+                    // Reset the form after submission
+                    quill.root.innerHTML = '';
+                    $('#attachmentInput').val('');
+                    $('#fileName').text('No file selected');
+                }
+            });
         });
         
         // Auto-refresh chat every 30 seconds to check for new emails
         setInterval(function() {
-            // Only refresh if user is not typing
-            if (!$('#messageInput').is(':focus')) {
+            // Only refresh if user is not focused on the editor
+            if (!quill.hasFocus()) {
                 checkForNewMessages();
             }
         }, 30000);
@@ -585,6 +719,156 @@
         font-family: 'Courier New', monospace;
         white-space: pre-wrap;
         word-wrap: break-word;
+    }
+
+    /* Style for Quill editor */
+    .editor-container {
+        margin-bottom: 10px;
+        position: relative; /* Ensure dropdowns position correctly */
+    }
+
+    #editor-toolbar {
+        height: 30px; /* Compact toolbar height */
+        position: relative;
+        z-index: 1000; /* Ensure toolbar stays above editor */
+    }
+
+    #editor {
+        background: white;
+        height: 300px; /* Increased height for better appearance */
+        line-height: 1.5;
+        overflow-y: auto;
+        position: relative;
+        z-index: 1; /* Lower than toolbar and dropdowns */
+    }
+
+    [data-bs-theme="dark"] #editor {
+        background: #343a40;
+        color: #f8f9fa;
+    }
+
+    /* Ensure images in chat messages are responsive */
+    .message-content img {
+        max-width: 100%;
+        height: auto;
+        display: block;
+        margin: 5px 0;
+    }
+
+    /* Buttons styling */
+    .gap-2 {
+        gap: 10px;
+    }
+
+    /* Fix Quill dropdown visibility */
+    .ql-picker-options {
+        position: absolute !important;
+        z-index: 1001 !important; /* Above toolbar and editor */
+        background-color: #fff !important; /* Visible background */
+        border: 1px solid #ced4da !important;
+        border-radius: 4px !important;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2) !important;
+        min-width: 120px !important;
+        top: 100% !important; /* Position below the toolbar */
+        margin-top: 2px !important;
+        display: none; /* Initially hidden */
+    }
+
+    .ql-picker-options.ql-expanded {
+        display: block !important; /* Show when expanded */
+    }
+
+    /* Ensure dropdown items are visible and clickable */
+    .ql-picker-item {
+        color: #333 !important;
+        padding: 5px 10px !important;
+        cursor: pointer !important;
+    }
+
+    .ql-picker-item:hover {
+        background-color: #f0f0f0 !important;
+    }
+
+    /* Dark theme adjustments for dropdowns */
+    [data-bs-theme="dark"] .ql-picker-options {
+        background-color: #444 !important;
+        border-color: #666 !important;
+    }
+
+    [data-bs-theme="dark"] .ql-picker-item {
+        color: #f8f9fa !important;
+    }
+
+    [data-bs-theme="dark"] .ql-picker-item:hover {
+        background-color: #555 !important;
+    }
+
+    /* Fix color and background picker */
+    .ql-snow .ql-picker.ql-color .ql-picker-options,
+    .ql-snow .ql-picker.ql-background .ql-picker-options {
+        padding: 5px !important;
+        display: none; /* Initially hidden */
+        flex-wrap: wrap !important;
+        width: 200px !important;
+    }
+
+    .ql-snow .ql-picker.ql-color .ql-picker-options.ql-expanded,
+    .ql-snow .ql-picker.ql-background .ql-picker-options.ql-expanded {
+        display: flex !important; /* Show when expanded */
+    }
+
+    .ql-snow .ql-picker.ql-color .ql-picker-item,
+    .ql-snow .ql-picker.ql-background .ql-picker-item {
+        width: 20px !important;
+        height: 20px !important;
+        margin: 2px !important;
+        border-radius: 3px !important;
+    }
+
+    /* Ensure toolbar buttons and dropdowns are clickable */
+    .ql-snow .ql-toolbar button,
+    .ql-snow .ql-toolbar .ql-picker-label {
+        cursor: pointer !important;
+    }
+
+    /* Fix alignment picker visibility */
+    .ql-snow .ql-picker.ql-align .ql-picker-item {
+        color: #000000 !important; /* Text color for alignment options */
+        position: relative !important;
+        padding-left: 25px !important; /* Space for the icon */
+    }
+
+    .ql-snow .ql-picker.ql-align .ql-picker-item:before {
+        content: attr(data-value) !important; /* Use the value as text for now */
+        position: absolute !important;
+        left: 5px !important;
+        top: 50% !important;
+        transform: translateY(-50%) !important;
+        font-family: 'Arial', sans-serif !important; /* Fallback font */
+    }
+
+    .ql-snow .ql-align .ql-picker-item[data-value=""]::before {
+        content: "Left" !important;
+    }
+
+    .ql-snow .ql-align .ql-picker-item[data-value="center"]::before {
+        content: "Center" !important;
+    }
+
+    .ql-snow .ql-align .ql-picker-item[data-value="right"]::before {
+        content: "Right" !important;
+    }
+
+    .ql-snow .ql-align .ql-picker-item[data-value="justify"]::before {
+        content: "Justify" !important;
+    }
+
+    [data-bs-theme="dark"] .ql-snow .ql-picker.ql-align .ql-picker-item {
+        color: #f8f9fa !important; /* Text color in dark theme */
+    }
+
+    [data-bs-theme="dark"] .ql-snow .ql-picker.ql-align .ql-picker-item:before {
+        color: #f8f9fa !important; /* Icon color in dark theme */
     }
 </style>
 {% endblock %}

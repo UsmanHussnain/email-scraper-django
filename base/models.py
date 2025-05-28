@@ -17,8 +17,9 @@ class EmailMessage(models.Model):
     message = models.TextField()
     timestamp = models.DateTimeField(auto_now_add=True)
     is_sent = models.BooleanField(default=True)
-    has_attachment = models.BooleanField(default=False) 
-    attachment = models.FileField(upload_to='email_attachments/', null=True, blank=True) 
+    has_attachment = models.BooleanField(default=False)
+    attachment = models.FileField(upload_to='email_attachments/', null=True, blank=True)
+    inline_images = models.JSONField(default=list, blank=True)
 
     def __str__(self):
         return f"{'Sent' if self.is_sent else 'Received'} message from {self.sender} to {self.receiver}"
