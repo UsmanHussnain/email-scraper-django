@@ -16,7 +16,7 @@ from django.contrib import messages
 import pandas as pd
 from .models import UploadedFile, EmailMessage
 from .email_scraper import process_excel
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 from django.contrib.auth import get_user_model
 
@@ -289,56 +289,108 @@ def compose_email(request):
         return render(request, 'base/compose_email.html', context)
 
 def extract_latest_reply(email_body):
-    """Extract only the latest reply from email thread"""
-    # Common email thread separators
+    """Extract only the latest reply from email thread, excluding quoted content and signatures"""
+    # Common patterns to identify quoted text or signatures
     separators = [
-        '-----Original Message-----',
-        '--- On ',
-        'On ',
-        'From:',
-        '________________________________',
-        '> On',
-        '>>',
-        'wrote:',
-        '\n>',
-        'Sent from',
-        'Get Outlook for',
-        '-----Forwarded Message-----'
+        r'-----Original Message-----',
+        r'--- On ',
+        r'On \w+, \w+ \d+, \d+ at \d+:\d+\s*(AM|PM), .* wrote:',
+        r'On \d+/\d+/\d+ \d+:\d+\s*(AM|PM), .* wrote:',
+        r'From:.*',
+        r'________________________________',
+        r'> On',
+        r'wrote:',
+        r'\n>',
+        r'Sent from my iPhone',
+        r'Sent from my Android',
+        r'Get Outlook for',
+        r'-- \n',
+        r'--\n',
     ]
-    
+
+    # Split email body into lines
     lines = email_body.split('\n')
     clean_lines = []
-    
-    for line in lines:
-        line = line.strip()
-        
-        # Check if this line starts a thread/quote
-        is_thread_start = False
-        for separator in separators:
-            if separator.lower() in line.lower():
-                is_thread_start = True
-                break
-        
-        # If we hit a thread separator, stop processing
-        if is_thread_start:
-            break
-            
-        # Skip lines that look like quoted text
-        if line.startswith('>') or line.startswith('>>'):
-            continue
-            
-        # Skip empty lines at the start but keep them in the middle
-        if line or clean_lines:
-            clean_lines.append(line)
-    
-    # Join and clean up
-    result = '\n'.join(clean_lines).strip()
-    
-    # Remove excessive whitespace
-    result = re.sub(r'\n\s*\n\s*\n', '\n\n', result)
-    
-    return result
+    in_quoted_section = False
+    potential_reply = []
 
+    # Process lines to find the latest reply
+    for line in reversed(lines):
+        line = line.strip()
+        if not line:
+            if potential_reply:
+                clean_lines.insert(0, '')  # Keep formatting
+            continue
+
+        # Check for separators or quoted text
+        is_separator = any(re.search(sep, line, re.IGNORECASE) for sep in separators)
+        is_quoted = line.startswith('>') or line.startswith('>>')
+
+        if is_separator or is_quoted:
+            in_quoted_section = True
+            if potential_reply:  # If we already have a reply, stop here
+                break
+            continue
+
+        # Check for signature-like content
+        if re.match(r'-- \n|--\n|Sent from my|Regards,|Best regards,|Thanks,', line, re.IGNORECASE):
+            if potential_reply:
+                break
+            continue
+
+        if not in_quoted_section and line:
+            potential_reply.insert(0, line)
+
+    # Join the potential reply
+    result = '\n'.join(potential_reply).strip()
+
+    # If no reply found, try a forward pass as fallback
+    if not result:
+        clean_lines = []
+        in_quoted_section = False
+        for line in lines:
+            line = line.strip()
+            if not line:
+                if not in_quoted_section and clean_lines:
+                    clean_lines.append('')
+                continue
+
+            is_separator = any(re.search(sep, line, re.IGNORECASE) for sep in separators)
+            is_quoted = line.startswith('>') or line.startswith('>>')
+
+            if is_separator or is_quoted:
+                in_quoted_section = True
+                continue
+
+            if not in_quoted_section and line:
+                if re.match(r'-- \n|--\n|Sent from my|Regards,|Best regards,|Thanks,', line, re.IGNORECASE):
+                    break
+                clean_lines.append(line)
+
+        result = '\n'.join(clean_lines).strip()
+
+    # Remove excessive whitespace
+    result = re.sub(r'\n\s*\n\s*\n+', '\n\n', result)
+
+    # Remove signatures or footers
+    signature_patterns = [
+        r'Sent from my.*$',
+        r'--\s*\n.*$',
+        r'Regards,\s*\n.*$',
+        r'Best regards,\s*\n.*$',
+        r'Thanks,\s*\n.*$',
+    ]
+    for pattern in signature_patterns:
+        result = re.sub(pattern, '', result, flags=re.MULTILINE | re.IGNORECASE)
+
+    result = result.strip()
+
+    # Debugging: Log raw and extracted content
+    if not result:
+        print(f"Raw email body: {email_body}")
+        print(f"Extracted result: {result}")
+
+    return result if result else email_body.split('\n')[0].strip() if email_body.strip() else "No reply content found."
 def markdown_to_html(text):
     """Convert basic Markdown to HTML for plain text emails"""
     # Convert **bold** or *bold* to <strong>
@@ -629,44 +681,64 @@ def chat(request, contact_email=None):
             imap_server = imaplib.IMAP4_SSL('imap.gmail.com')
             imap_server.login(settings.EMAIL_HOST_USER, settings.EMAIL_HOST_PASSWORD)
             imap_server.select('INBOX')
+            # Search for emails from the specific contact, including replies
             search_criteria = f'(FROM "{contact_email}")'
-            _, message_numbers = imap_server.search(None, search_criteria)
+            _, message_numbers = imap_server.search(None, 'ALL', search_criteria)
             
             if message_numbers[0]:
                 for num in message_numbers[0].split():
                     try:
                         _, msg_data = imap_server.fetch(num, '(RFC822)')
                         if not msg_data or len(msg_data) < 2:
+                            print(f"Skipping email {num}: No data")
                             continue
                         raw_email = msg_data[0][1]
                         if not isinstance(raw_email, bytes):
+                            print(f"Skipping email {num}: Invalid raw email data")
                             continue
                         msg = email_module.message_from_bytes(raw_email)
                         body = clean_email_body(msg)
                         if not body or len(body.strip()) < 3:
+                            print(f"Skipping email {num}: Empty or too short body")
                             continue
                         sender = msg.get('From', contact_email)
                         if '<' in sender and '>' in sender:
                             sender = sender.split('<')[1].split('>')[0].strip()
                         message_id = msg.get('Message-ID', None)
                         if not message_id:
-                            message_id = f"{sender}_{hash(body)}"
-                        if not EmailMessage.objects.filter(user=request.user, message=body, sender=sender).exists():
+                            message_id = f"{sender}_{hash(body[:50])}"  # Use first 50 chars for hash
+                        # Check for duplicates using Message-ID or sender+timestamp
+                        existing_message = EmailMessage.objects.filter(
+                            user=request.user,
+                            sender=sender,
+                            message_id=message_id
+                        ).exists() if message_id else EmailMessage.objects.filter(
+                            user=request.user,
+                            sender=sender,
+                            message=body,
+                            timestamp__gte=get_email_date(msg) - timedelta(minutes=5),
+                            timestamp__lte=get_email_date(msg) + timedelta(minutes=5)
+                        ).exists()
+                        if not existing_message:
                             new_message = EmailMessage.objects.create(
                                 user=request.user,
                                 sender=sender,
                                 receiver=settings.DEFAULT_FROM_EMAIL,
                                 message=body,
                                 is_sent=False,
-                                timestamp=get_email_date(msg)
+                                timestamp=get_email_date(msg),
+                                message_id=message_id
                             )
                             extract_attachments(msg, new_message)
+                            print(f"Added new email from {sender} with ID {message_id}")
+                        else:
+                            print(f"Skipping duplicate email from {sender} with ID {message_id}")
                     except Exception as e:
-                        print(f"Error processing individual email: {e}")
+                        print(f"Error processing email {num}: {str(e)}")
                         continue
             imap_server.logout()
         except Exception as e:
-            print(f"IMAP Error: {e}")
+            print(f"IMAP Error: {str(e)}")
             pass
 
     if request.method == 'POST' and contact_email:

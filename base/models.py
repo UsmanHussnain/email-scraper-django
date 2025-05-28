@@ -20,6 +20,7 @@ class EmailMessage(models.Model):
     has_attachment = models.BooleanField(default=False)
     attachment = models.FileField(upload_to='email_attachments/', null=True, blank=True)
     inline_images = models.JSONField(default=list, blank=True)
+    message_id = models.CharField(max_length=255, null=True, blank=True, unique=True)
 
     def __str__(self):
         return f"{'Sent' if self.is_sent else 'Received'} message from {self.sender} to {self.receiver}"
