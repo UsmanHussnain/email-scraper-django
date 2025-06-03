@@ -1,4 +1,5 @@
 {% extends 'base/baseIndex.html' %}
+{% load email_filters %}
 
 {% block content %}
 <div class="container-fluid py-4">
@@ -11,16 +12,34 @@
                         <i class="fas fa-users me-2"></i>Contacts
                     </h5>
                 </div>
-                <div class="card-body p-0">
+                <div class="card-body p-0" id="contactList">
                     <div class="list-group list-group-flush">
-                        {% for email in chat_emails %}
-                            <a href="{% url 'chat' contact_email=email %}" 
-                               class="list-group-item list-group-item-action {% if email == selected_email %}active{% endif %}" style="background-color: {% if email == selected_email %}#28a745{% else %}#f8f9fa{% endif %};">
+                        {% for contact in chat_emails %}
+                            <a href="{% url 'chat' contact_email=contact.email %}" 
+                               class="list-group-item list-group-item-action {% if contact.email == selected_email %}active{% endif %}" 
+                               style="background-color: {% if contact.email == selected_email %}#28a745{% else %}#f8f9fa{% endif %};"
+                               data-email="{{ contact.email }}">
                                 <div class="d-flex justify-content-between align-items-center">
-                                    <span class="text-truncate" style="max-width: 80%;">{{ email }}</span>
-                                    {% if email == selected_email %}
+                                    <div style="max-width: 80%;">
+                                        <span class="text-truncate d-block {% if contact.unread_count > 0 %}fw-bold{% endif %}" 
+                                              style="font-weight: {% if contact.unread_count > 0 %}bold{% else %}normal{% endif %};">
+                                            {{ contact.email }}
+                                        </span>
+                                        <small class="text-muted text-truncate d-block {% if contact.unread_count > 0 %}fw-bold{% endif %}" 
+                                               style="max-width: 100%;">
+                                            {{ contact.last_message|striptags|truncatechars:50 }}
+                                        </small>
+                                        <small class="text-muted" style="font-size: 0.75rem;">
+                                            {{ contact.last_timestamp }}
+                                        </small>
+                                    </div>
+                                    {% if contact.email == selected_email %}
                                         <span class="badge bg-light text-success rounded-pill">
                                             <i class="fas fa-comment"></i>
+                                        </span>
+                                    {% elif contact.unread_count > 0 %}
+                                        <span class="badge bg-danger rounded-pill">
+                                            {{ contact.unread_count }}
                                         </span>
                                     {% endif %}
                                 </div>
@@ -59,6 +78,10 @@
                             <button class="btn btn-sm btn-danger delete-chat-btn" data-email="{{ selected_email }}" title="Delete this chat">
                                 <i class="fas fa-trash-alt"></i> Delete
                             </button>
+                            <a href="{% url 'chat_list' %}" class="btn btn-sm btn-danger">
+                                <i class="fas fa-close me-1"></i> Close
+                            </a>
+                            
                         </div>
                     {% else %}
                         <h5 class="mb-0">
@@ -74,7 +97,7 @@
                             {% for message in chat_history %}
                                 <div class="mb-3 {% if message.is_sent %}text-start{% else %}text-start{% endif %}">
                                     <div class="d-flex {% if message.is_sent %}justify-content-end{% else %}justify-content-start{% endif %}">
-                                        <div class="{% if message.is_sent %}bg-success{% else %}bg-light{% endif %} text-{% if message.is_sent %}white{% else %}dark{% endif %} p-3 rounded-3 shadow-sm" 
+                                        <div class="{% if message.is_sent %}bg-success{% else %}bg-light{% endif %} text-{% if message.is_sent %}white{% else %}dark{% endif %} p-3 rounded-3 shadow-sm message-bubble" 
                                              style="max-width: 70%;">
                                             <div class="d-flex justify-content-between align-items-center mb-1">
                                                 <small class="fw-bold">
@@ -88,15 +111,9 @@
                                                     {{ message.timestamp|date:"M j, H:i" }}
                                                 </small>
                                             </div>
-                                            <!-- Render the message content with inline images -->
                                             <div class="mb-0 message-content">
-                                                {% if message.inline_images %}
-                                                    {{ message.message|safe }}
-                                                {% else %}
-                                                    {{ message.message|safe }}
-                                                {% endif %}
+                                                {{ message.message|safe }}
                                             </div>
-                                            <!-- Display attachments -->
                                             {% if message.has_attachment and message.attachment %}
                                                 <div class="mt-2">
                                                     <i class="fas fa-file me-1"></i>
@@ -136,8 +153,7 @@
                         <form method="POST" id="chatForm" enctype="multipart/form-data">
                             {% csrf_token %}
                             <div class="editor-container">
-                                <!-- Quill Editor Toolbar -->
-                                <div id="editor-toolbar" style="border: 1px solid #ced4da; border-bottom: none; border-radius: 4px 4px 0 0; background: #f8f9fa; padding: 2px 5px; line-height: 1; position: relative;">
+                                <div id="editor-toolbar" class="ql-toolbar ql-snow" style="border: 1px solid #ced4da; border-bottom: none; border-radius: 4px 4px 0 0; background: #f8f9fa; padding: 2px 5px; line-height: 1; position: relative;">
                                     <span class="ql-formats">
                                         <select class="ql-font">
                                             <option value="sans-serif" selected>Sans Serif</option>
@@ -177,12 +193,9 @@
                                         <button class="ql-clean"></button>
                                     </span>
                                 </div>
-                                <!-- Quill Editor Container -->
-                                <div id="editor" style="height: 300px; border: 1px solid #ced4da; border-top: none; border-radius: 0 0 4px 4px;"></div>
-                                <!-- Hidden input to store Quill content -->
+                                <div id="editor" class="ql-container ql-snow" style="height: 150px; border: 1px solid #ced4da; border-top: none; border-radius: 0 0 4px 4px; background: #fff;"></div>
                                 <input type="hidden" name="message" id="messageInput">
                             </div>
-                            <!-- Buttons below the editor -->
                             <div class="d-flex justify-content-end mt-2 gap-2">
                                 <label for="attachmentInput" class="btn btn-outline-secondary m-0">
                                     <i class="fas fa-paperclip"></i> Attach File
@@ -194,7 +207,7 @@
                             </div>
                             <div class="d-flex justify-content-between mt-2">
                                 <small class="text-muted" id="fileName">
-                                    {% if form.attachment.value %}Selected: {{ form.attachment.value }}{% else %}No file selected{% endif %}
+                                    No file selected
                                 </small>
                                 <small class="text-muted">
                                     Messages are sent as emails
@@ -301,7 +314,7 @@
 </div>
 
 <!-- Toast Notification -->
-<div class="position-fixed bottom-0 end-0 p-3" style="z-index: 11">
+<div class="position-fixed bottom-0 end-0 p-3" style="z-index: 11;">
     <div id="liveToast" class="toast hide" role="alert" aria-live="assertive" aria-atomic="true" data-bs-autohide="true" data-bs-delay="3000">
         <div class="toast-header">
             <strong class="me-auto">Notification</strong>
@@ -320,6 +333,7 @@
         const toastLiveExample = document.getElementById('liveToast');
         const toast = new bootstrap.Toast(toastLiveExample);
         const deleteConfirmModal = new bootstrap.Modal(document.getElementById('deleteConfirmModal'));
+        let selected_email = "{{ selected_email|escapejs }}";
 
         // Initialize Quill editor
         var quill = new Quill('#editor', {
@@ -330,100 +344,79 @@
             placeholder: 'Type your message here...'
         });
 
-        // Handle dropdown visibility (especially for color and background pickers)
+        // Handle dropdown visibility for Quill toolbar
         function handleDropdownVisibility() {
-            // Hide all dropdowns when clicking anywhere on the document
             $(document).on('click', function(e) {
-                // If the click is not on a picker label or inside a picker, hide all dropdowns
                 if (!$(e.target).closest('.ql-picker-label').length && !$(e.target).closest('.ql-picker-options').length) {
                     $('.ql-picker-options').removeClass('ql-expanded').hide();
                     $('.ql-picker-label').removeClass('ql-expanded');
                 }
             });
 
-            // Show/hide dropdowns on click
             $('.ql-picker-label').on('click', function(e) {
                 e.preventDefault();
                 e.stopPropagation();
                 const $picker = $(this).closest('.ql-picker');
                 const $options = $picker.find('.ql-picker-options');
-
-                // Toggle the current dropdown
                 if ($options.is(':visible')) {
                     $options.removeClass('ql-expanded').hide();
                     $(this).removeClass('ql-expanded');
                 } else {
-                    // Hide all other dropdowns
                     $('.ql-picker-options').removeClass('ql-expanded').hide();
                     $('.ql-picker-label').removeClass('ql-expanded');
-                    // Show the current dropdown
                     $options.addClass('ql-expanded').show();
                     $(this).addClass('ql-expanded');
                 }
             });
 
-            // Hide dropdown after selecting an option
             $('.ql-picker-item').on('click', function() {
                 const $options = $(this).closest('.ql-picker-options');
                 $options.removeClass('ql-expanded').hide();
                 $options.siblings('.ql-picker-label').removeClass('ql-expanded');
             });
         }
-
-        // Call the function to handle dropdown visibility
         handleDropdownVisibility();
 
-        // Template data
+        // Template data with fixed HTML
         const templates = {
-            template1: {
-                title: "Guest Post Opportunity",
-                content: `<p>Hello,</p><p>I hope this email finds you well! My name is [Your Name], and I'm reaching out to discuss a potential guest post opportunity for your website. We specialize in creating high-quality, engaging content that aligns with your audience's interests.</p><p>I'd love to contribute a well-researched article that provides value to your readers. Please let me know if you're open to this idea, and I can share some topic suggestions.</p><p>Looking forward to hearing from you!</p><p>Regards,</p><p>{{ user.first_name|default:user.username }}</p>`
+            template1: { 
+                title: "Guest Post Opportunity", 
+                content: `<p>Hello,</p><p>I hope this email finds you well! My name is {{ user.first_name|default:user.username }}. I'm reaching out to discuss a potential guest post opportunity for your website. We specialize in creating high-quality, engaging content that aligns with your audience's interests.</p><p>I'd love to contribute a well-researched article that provides value to your readers. Please let me know if you're open to this idea, and I can share some topic suggestions.</p><p>Looking forward to hearing from you!</p><p>Regards,</p><p>{{ user.first_name|default:user.username }}</p>` 
             },
-            template2: {
-                title: "Collaboration Proposal: Guest Blog Post",
-                content: `<p>Hi there,</p><p>I'm [Your Name], a content creator passionate about [your niche]. I've been following your website and love the content you share. I'd like to propose a guest blog post that complements your site's theme and adds value for your readers.</p><p>If you're interested, I can send over a few topic ideas or work with any guidelines you provide.</p><p>Let's connect and discuss further!</p><p>Regards,</p><p>{{ user.first_name|default:user.username }}</p>`
+            template2: { 
+                title: "Collaboration Proposal", 
+                content: `<p>Hi there,</p><p>I'm {{ user.first_name|default:user.username }}, a content creator passionate about [your niche]. I've been following your website and love the content you share. I'd like to propose a guest blog post that complements your site's theme and adds value for your readers.</p><p>If you're interested, I can send over a few topic ideas or work with any guidelines you provide.</p><p>Let's connect and discuss further!</p><p>Regards,</p><p>{{ user.first_name|default:user.username }}</p>` 
             },
-            template3: {
-                title: "Interested in a Guest Post Partnership?",
-                content: `<p>Dear [Website Owner],</p><p>Greetings! I'm [Your Name], and I specialize in crafting informative and engaging content. I believe a guest post on your website could be a great way to share valuable insights with your audience.</p><p>I'm happy to write on a topic that fits your site's focus. Please let me know your guest posting guidelines or any preferred topics.</p><p>Excited to collaborate!</p><p>Regards,</p><p>{{ user.first_name|default:user.username }}</p>`
+            template3: { 
+                title: "Guest Post Partnership", 
+                content: `<p>Dear [Website Owner],</p><p>Greetings! I'm {{ user.first_name|default:user.username }}, and I specialize in crafting informative and engaging content. I believe a guest post on your website could be a great way to share valuable insights with your audience.</p><p>I'm happy to write on a topic that fits your site's focus. Please let me know your guest posting guidelines or any preferred topics.</p><p>Excited to collaborate!</p><p>Regards,</p><p>{{ user.first_name|default:user.username }}</p>` 
             },
-            template4: {
-                title: "Let's Boost Your Site with a Guest Post",
-                content: `<p>Hello,</p><p>My name is [Your Name], and I'm a writer with a passion for creating content that resonates with readers. I'd love to contribute a guest post to your website, offering fresh perspectives and actionable insights.</p><p>If this sounds interesting, I can provide topic ideas or follow your editorial guidelines.</p><p>Looking forward to your response!</p><p>Regards,</p><p>{{ user.first_name|default:user.username }}</p>`
+            template4: { 
+                title: "Boost Your Site", 
+                content: `<p>Hello,</p><p>My name is {{ user.first_name|default:user.username }}, and I'm a writer with a passion for creating content that resonates with readers. I'd love to contribute a guest post to your website, offering fresh perspectives and actionable insights.</p><p>If this sounds interesting, I can provide topic ideas or follow your editorial guidelines.</p><p>Looking forward to your response!</p><p>Regards,</p><p>{{ user.first_name|default:user.username }}</p>` 
             }
         };
-        
+
         // Show Django messages as toasts
         {% for message in messages %}
-            showToast("{{ message }}", "{{ message.tags }}");
+            showToast("{{ message|escapejs }}", "{{ message.tags }}");
         {% endfor %}
-        
-        // Auto-scroll chat to bottom on page load
+
+        // Auto-scroll chat to bottom
         const chatContainer = document.getElementById('chatContainer');
-        if (chatContainer) {
-            chatContainer.scrollTop = chatContainer.scrollHeight;
-        }
-        
+        if (chatContainer) chatContainer.scrollTop = chatContainer.scrollHeight;
+
         // Handle template selection
         $('[data-template]').click(function(e) {
             e.preventDefault();
             const templateId = $(this).data('template');
             const template = templates[templateId];
-            
-            // Update active state
-            $('[data-template]').removeClass('active');
-            $(this).addClass('active');
-            
-            // Update preview
+            $('[data-template]').removeClass('active').css({'background-color': '', 'color': ''});
+            $(this).addClass('active').css({'background-color': '#28a745', 'color': 'white'});
             $('#templateTitle').text(template.title);
             $('#templatePreview').html(template.content);
-            
-            // Update styles for active template
-            $('[data-template]').css({'background-color': '', 'color': ''});
-            $(this).css({'background-color': '#28a745', 'color': 'white'});
         });
-        
-        // Initialize first template on modal show
+
         $('#emailTemplateModal').on('show.bs.modal', function() {
             if ($('[data-template]').length > 0) {
                 const firstTemplate = $('[data-template]').first().data('template');
@@ -432,8 +425,7 @@
                 $('[data-template]').first().addClass('active').css({'background-color': '#28a745', 'color': 'white'});
             }
         });
-        
-        // Use template button
+
         $('#useTemplateBtn').click(function() {
             const activeTemplate = $('[data-template].active').data('template');
             if (activeTemplate && templates[activeTemplate]) {
@@ -443,42 +435,30 @@
                 showToast('Template applied successfully!', 'success');
             }
         });
-        
-        // Update file name display when a file is selected
+
         window.updateFileName = function(input) {
             const fileName = input.files.length > 0 ? input.files[0].name : 'No file selected';
             $('#fileName').text(`Selected: ${fileName}`);
         };
-        
-        // Form submission with Quill content using AJAX
-        $('#chatForm').submit(function(e) {
-            e.preventDefault(); // Prevent default form submission
 
-            // Get Quill content as HTML
+        $('#chatForm').submit(function(e) {
+            e.preventDefault();
             const message = quill.root.innerHTML.trim();
             const attachment = $('#attachmentInput')[0].files.length > 0;
-
             if (!message || message === '<p><br></p>') {
                 if (!attachment) {
                     showToast('Please enter a message or attach a file.', 'warning');
                     return false;
                 }
             }
-
-            // Set the Quill content to the hidden input
             $('#messageInput').val(message);
-
-            // Prepare form data for AJAX
             const formData = new FormData(this);
             const submitBtn = $(this).find('button[type="submit"]');
             const originalText = submitBtn.html();
-
-            // Show sending indicator
             submitBtn.html('<i class="fas fa-spinner fa-spin"></i> Sending...').prop('disabled', true);
 
-            // Send AJAX request
             $.ajax({
-                url: $(this).attr('action') || window.location.href, // Use form action or current URL
+                url: $(this).attr('action') || window.location.href,
                 type: 'POST',
                 data: formData,
                 processData: false,
@@ -486,10 +466,11 @@
                 success: function(response) {
                     if (response.status === 'success') {
                         showToast(response.message, 'success');
-                        // Redirect to the chat page to show updated messages
-                        setTimeout(function() {
-                            window.location.href = response.redirect_url || window.location.href;
-                        }, 1000);
+                        appendMessageToChat(response.new_message);
+                        quill.root.innerHTML = '';
+                        $('#attachmentInput').val('');
+                        $('#fileName').text('No file selected');
+                        submitBtn.html(originalText).prop('disabled', false);
                     } else {
                         showToast(response.message, 'danger');
                         submitBtn.html(originalText).prop('disabled', false);
@@ -498,24 +479,133 @@
                 error: function(xhr) {
                     showToast('An error occurred while sending the message.', 'danger');
                     submitBtn.html(originalText).prop('disabled', false);
-                },
-                complete: function() {
-                    // Reset the form after submission
-                    quill.root.innerHTML = '';
-                    $('#attachmentInput').val('');
-                    $('#fileName').text('No file selected');
                 }
             });
         });
-        
-        // Auto-refresh chat every 30 seconds to check for new emails
-        setInterval(function() {
-            // Only refresh if user is not focused on the editor
-            if (!quill.hasFocus()) {
-                checkForNewMessages();
-            }
-        }, 30000);
-        
+
+        // Real-time check for new messages
+        let lastMessageId = {{ last_message_id|default:0 }};
+        const contactList = $('#contactList .list-group');
+
+        function checkNewMessages() {
+            $.get(window.location.href + '?ajax=true&last_message_id=' + lastMessageId, function(response) {
+                if (response.status === 'success' && response.messages.length > 0) {
+                    response.messages.forEach(msg => {
+                        lastMessageId = Math.max(lastMessageId, msg.id);
+
+                        // Update contact list only if the message is unread
+                        let $contact = $(`a[data-email="${msg.sender}"]`);
+                        if ($contact.length === 0 && !msg.is_read) {
+                            $contact = $(`
+                                <a href="{% url 'chat' contact_email='__EMAIL__' %}" 
+                                   class="list-group-item list-group-item-action" 
+                                   style="background-color: #f8f9fa;" 
+                                   data-email="${msg.sender}">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <div style="max-width: 80%;">
+                                            <span class="text-truncate d-block fw-bold" style="font-weight: bold;">
+                                                ${msg.sender}
+                                            </span>
+                                            <small class="text-muted text-truncate d-block fw-bold" style="max-width: 100%;">
+                                                ${msg.message.length > 50 ? msg.message.substring(0, 47) + '...' : msg.message}
+                                            </small>
+                                            <small class="text-muted" style="font-size: 0.75rem;">
+                                                ${msg.timestamp}
+                                            </small>
+                                        </div>
+                                        <span class="badge bg-danger rounded-pill">1</span>
+                                    </div>
+                                </a>
+                            `).prependTo(contactList);
+                        } else if (!msg.is_read && msg.sender !== selected_email) {
+                            const $small = $contact.find('small').first();
+                            const $timestamp = $contact.find('small').last();
+                            $small.text(msg.message.length > 50 ? msg.message.substring(0, 47) + '...' : msg.message).addClass('fw-bold');
+                            $timestamp.text(msg.timestamp);
+                            const $span = $contact.find('.badge');
+                            if (!$span.length || $span.hasClass('bg-light')) {
+                                $contact.find('.badge').remove();
+                                $('<span class="badge bg-danger rounded-pill">1</span>').appendTo($contact.find('.d-flex'));
+                            } else {
+                                let count = parseInt($span.text()) || 0;
+                                $span.text(count + 1);
+                            }
+                            $contact.find('span.text-truncate').addClass('fw-bold');
+                        }
+
+                        // Append message to chat if current chat is open and message is unread
+                        if (selected_email && msg.sender === selected_email && !msg.is_read) {
+                            appendMessageToChat(msg);
+                            let $contact = $(`a[data-email="${msg.sender}"]`);
+                            $contact.find('span.text-truncate').removeClass('fw-bold');
+                            $contact.find('small').removeClass('fw-bold');
+                            let $badge = $contact.find('.badge.bg-danger');
+                            if ($badge.length) {
+                                let count = parseInt($badge.text()) || 1;
+                                if (count > 1) $badge.text(count - 1);
+                                else $badge.remove();
+                            }
+                        } else if (msg.sender !== selected_email && !msg.is_read) {
+                            showToast(`New message from ${msg.sender}!`, 'info');
+                        }
+                    });
+
+                    // Reorder contacts based on latest message timestamp
+                    let contacts = contactList.children('a').get();
+                    contacts.sort((a, b) => {
+                        let timeA = $(a).find('small').last().text().trim();
+                        let timeB = $(b).find('small').last().text().trim();
+                        return timeB.localeCompare(timeA);
+                    });
+                    contactList.empty();
+                    $.each(contacts, function(index, contact) {
+                        contactList.append(contact);
+                    });
+                }
+            });
+        }
+
+        // Append message to chat area
+        function appendMessageToChat(msg) {
+            const $chatContainer = $('#chatContainer');
+            const alignmentClass = msg.is_sent ? 'justify-content-end' : 'justify-content-start';
+            const bgClass = msg.is_sent ? 'bg-success text-white' : 'bg-light text-dark';
+            const senderLabel = msg.is_sent ? 'You' : msg.sender;
+            const messageContent = msg.message || (msg.has_attachment ? 'Sent an attachment.' : '');
+            const $messageDiv = $(`
+                <div class="mb-3 ${msg.is_sent ? 'text-end' : 'text-start'}">
+                    <div class="d-flex ${alignmentClass}">
+                        <div class="${bgClass} p-3 rounded-3 shadow-sm message-bubble" style="max-width: 70%;">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <small class="fw-bold">${senderLabel}</small>
+                                <small class="ms-2">${msg.timestamp}</small>
+                            </div>
+                            <div class="mb-0 message-content">${messageContent}</div>
+                            ${msg.has_attachment && msg.attachment_url ? `
+                                <div class="mt-2">
+                                    <i class="fas fa-file me-1"></i>
+                                    <span>Attachment: ${msg.attachment_name}</span>
+                                    <div class="mt-1">
+                                        <a href="${msg.attachment_url}" class="btn btn-sm btn-primary me-2" download>
+                                            <i class="fas fa-download me-1"></i> Download
+                                        </a>
+                                        <a href="${msg.attachment_url}" target="_blank" class="btn btn-sm btn-info">
+                                            <i class="fas fa-eye me-1"></i> Preview
+                                        </a>
+                                    </div>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+            `);
+            $chatContainer.append($messageDiv);
+            $chatContainer.scrollTop($chatContainer[0].scrollHeight);
+        }
+
+        // Auto-refresh every 5 seconds for faster detection
+        setInterval(checkNewMessages, 5000);
+
         // Delete chat functionality
         $('.delete-chat-btn').click(function() {
             const email = $(this).data('email');
@@ -528,347 +618,156 @@
             $.ajax({
                 url: `{% url 'delete_chat' contact_email='PLACEHOLDER' %}`.replace('PLACEHOLDER', email),
                 type: 'POST',
-                data: {
-                    csrfmiddlewaretoken: $('input[name=csrfmiddlewaretoken]').val()
-                },
-                beforeSend: function() {
-                    $('#confirmDeleteBtn').html('<i class="fas fa-spinner fa-spin"></i> Deleting...').prop('disabled', true);
-                },
+                data: { csrfmiddlewaretoken: $('input[name=csrfmiddlewaretoken]').val() },
+                beforeSend: function() { $('#confirmDeleteBtn').html('<i class="fas fa-spinner fa-spin"></i> Deleting...').prop('disabled', true); },
                 success: function(response) {
                     if (response.status === 'success') {
                         showToast(response.message, 'success');
-                        setTimeout(function() {
-                            window.location.href = '/chat/';  // Redirect to chat list
-                        }, 2000);
+                        setTimeout(function() { window.location.href = response.redirect_url || '/chat/'; }, 2000);
                     } else {
                         showToast(response.message, 'danger');
                     }
                 },
-                error: function() {
-                    showToast('An error occurred while deleting the chat.', 'danger');
-                },
-                complete: function() {
-                    deleteConfirmModal.hide();
-                    $('#confirmDeleteBtn').html('Delete').prop('disabled', false);
-                }
+                error: function() { showToast('An error occurred while deleting the chat.', 'danger'); },
+                complete: function() { deleteConfirmModal.hide(); $('#confirmDeleteBtn').html('Delete').prop('disabled', false); }
             });
         });
 
-        function checkForNewMessages() {
-            // Simple check - reload the page to fetch new emails
-            const currentMessageCount = $('.mb-3').length;
-            $.get(window.location.href, function(data) {
-                const newDoc = $(data);
-                const newMessageCount = newDoc.find('.mb-3').length;
-                if (newMessageCount > currentMessageCount) {
-                    location.reload();
-                }
-            });
-        }
-        
         function showToast(message, type) {
             const toastBody = $('.toast-body');
             const toastHeader = $('.toast-header');
-            
-            // Set appropriate colors based on message type
             toastBody.removeClass().addClass('toast-body');
             toastHeader.removeClass().addClass('toast-header');
-            
             switch(type) {
-                case 'success':
-                    toastBody.addClass('text-success');
-                    toastHeader.addClass('bg-success text-white');
-                    break;
-                case 'error':
-                case 'danger':
-                    toastBody.addClass('text-danger');
-                    toastHeader.addClass('bg-danger text-white');
-                    break;
-                case 'warning':
-                    toastBody.addClass('text-warning');
-                    toastHeader.addClass('bg-warning');
-                    break;
-                default:
-                    toastBody.addClass('text-info');
-                    toastHeader.addClass('bg-info text-white');
+                case 'success': toastBody.addClass('text-success'); toastHeader.addClass('bg-success text-white'); break;
+                case 'danger': toastBody.addClass('text-danger'); toastHeader.addClass('bg-danger text-white'); break;
+                case 'warning': toastBody.addClass('text-warning'); toastHeader.addClass('bg-warning'); break;
+                default: toastBody.addClass('text-info'); toastHeader.addClass('bg-info text-white');
             }
-            
-            toastBody.text(message);
+            toastBody.html(message);
             toast.show();
         }
     });
 </script>
 
 <style>
-    /* Custom styles for chat interface */
-    .list-group-item {
-        transition: background-color 0.3s ease;
+    .list-group-item { 
+        transition: background-color 0.3s ease, transform 0.2s ease; 
+        border-radius: 8px; 
+        margin-bottom: 2px; 
     }
-    
-    .list-group-item:hover {
-        background-color: #e9ecef !important;
+    .list-group-item:hover { 
+        background-color: #e9ecef !important; 
+        transform: translateY(-1px); 
     }
-    
-    .list-group-item.active {
-        background-color: #28a745 !important;
-        border-color: #28a745 !important;
-        color: white !important;
+    .list-group-item.active { 
+        background-color: #28a745 !important; 
+        border-color: #28a745 !important; 
+        color: white !important; 
     }
-    
-    #chatContainer {
-        background-color: #f8f9fa;
-        background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23e9ecef' fill-opacity='0.2'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+    #chatContainer { 
+        background-color: #f8f9fa; 
+        background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23e9ecef' fill-opacity='0.2'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E"); 
     }
-    
-    [data-bs-theme="dark"] #chatContainer {
-        background-color: #2c3e50;
-        background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%231a1a2e' fill-opacity='0.2'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+    [data-bs-theme="dark"] #chatContainer { 
+        background-color: #2c3e50; 
+        background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%231a1a2e' fill-opacity='0.2'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E"); 
     }
-    
-    /* Custom scrollbar */
-    #chatContainer::-webkit-scrollbar {
-        width: 8px;
+    #chatContainer::-webkit-scrollbar { 
+        width: 8px; 
     }
-    
-    #chatContainer::-webkit-scrollbar-track {
-        background: #f1f1f1;
+    #chatContainer::-webkit-scrollbar-track { 
+        background: #f1f1f1; 
     }
-    
-    #chatContainer::-webkit-scrollbar-thumb {
-        background: #888;
-        border-radius: 4px;
+    #chatContainer::-webkit-scrollbar-thumb { 
+        background: #888; 
+        border-radius: 4px; 
     }
-    
-    #chatContainer::-webkit-scrollbar-thumb:hover {
-        background: #555;
+    #chatContainer::-webkit-scrollbar-thumb:hover { 
+        background: #555; 
     }
-    
-    [data-bs-theme="dark"] #chatContainer::-webkit-scrollbar-track {
-        background: #2c3e50;
+    [data-bs-theme="dark"] #chatContainer::-webkit-scrollbar-track { 
+        background: #2c3e50; 
     }
-    
-    [data-bs-theme="dark"] #chatContainer::-webkit-scrollbar-thumb {
-        background: #6c757d;
+    [data-bs-theme="dark"] #chatContainer::-webkit-scrollbar-thumb { 
+        background: #6c757d; 
     }
-    
-    /* Message bubbles */
-    .bg-light {
-        background-color: #e9ecef !important;
-        border: 1px solid #dee2e6;
+    .bg-light { 
+        background-color: #e9ecef !important; 
+        border: 1px solid #dee2e6; 
     }
-    
-    [data-bs-theme="dark"] .bg-light {
-        background-color: #343a40 !important;
-        color: #f8f9fa;
-        border: 1px solid #495057;
+    [data-bs-theme="dark"] .bg-light { 
+        background-color: #343a40 !important; 
+        color: #f8f9fa; 
+        border: 1px solid #495057; 
     }
-    
-    /* Card enhancements */
-    .card {
-        border: none;
-        border-radius: 10px;
-        transition: transform 0.2s ease;
+    .card { 
+        border: none; 
+        border-radius: 12px; 
+        transition: transform 0.2s ease, box-shadow 0.3s ease; 
     }
-    
-    .card:hover {
-        transform: translateY(-2px);
+    .card:hover { 
+        transform: translateY(-3px); 
+        box-shadow: 0 8px 20px rgba(0,0,0,0.1); 
     }
-    
-    /* Message animation */
-    .mb-3 {
-        animation: fadeInUp 0.3s ease-out;
+    .message-bubble { 
+        position: relative; 
+        border-radius: 15px !important; 
+        transition: background-color 0.3s ease; 
     }
-    
-    @keyframes fadeInUp {
-        from {
-            opacity: 0;
-            transform: translateY(20px);
-        }
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
+    .message-bubble.bg-success:hover { 
+        background-color: #218838 !important; 
     }
-    
-    /* Responsive adjustments */
-    @media (max-width: 767.98px) {
-        .col-lg-3, .col-lg-9 {
-            padding-left: 0;
-            padding-right: 0;
-        }
-        
-        #chatContainer {
-            height: 300px !important;
-        }
-        
-        .modal-dialog.modal-lg {
-            max-width: 95%;
-        }
+    .message-bubble.bg-light:hover { 
+        background-color: #dfe3e8 !important; 
     }
-    
-    /* Loading state */
-    .btn:disabled {
-        opacity: 0.7;
+    .mb-3 { 
+        animation: fadeInUp 0.3s ease-out; 
     }
-    
-    /* Template preview styling */
-    #templatePreview {
-        background-color: white;
-        border: 1px solid #dee2e6;
-        border-radius: 5px;
-        font-family: 'Courier New', monospace;
-        white-space: pre-wrap;
-        word-wrap: break-word;
+    @keyframes fadeInUp { 
+        from { opacity: 0; transform: translateY(20px); } 
+        to { opacity: 1; transform: translateY(0); } 
     }
-
-    /* Style for Quill editor */
-    .editor-container {
-        margin-bottom: 10px;
-        position: relative; /* Ensure dropdowns position correctly */
+    @media (max-width: 767.98px) { 
+        .col-lg-3, .col-lg-9 { padding-left: 0; padding-right: 0; } 
+        #chatContainer { height: 300px !important; } 
+        .modal-dialog.modal-lg { max-width: 95%; } 
+        #editor { height: 100px !important; } 
     }
-
-    #editor-toolbar {
-        height: 30px; /* Compact toolbar height */
-        position: relative;
-        z-index: 1000; /* Ensure toolbar stays above editor */
+    .btn:disabled { 
+        opacity: 0.7; 
     }
-
-    #editor {
-        background: white;
-        height: 300px; /* Increased height for better appearance */
-        line-height: 1.5;
-        overflow-y: auto;
-        position: relative;
-        z-index: 1; /* Lower than toolbar and dropdowns */
+    #templatePreview { 
+        background-color: white; 
+        border: 1px solid #dee2e6; 
+        border-radius: 5px; 
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; 
+        font-size: 14px; 
+        line-height: 1.5; 
     }
-
-    [data-bs-theme="dark"] #editor {
-        background: #343a40;
-        color: #f8f9fa;
+    [data-bs-theme="dark"] #templatePreview { 
+        background-color: #343a40; 
+        color: #f8f9fa; 
+        border-color: #495057; 
     }
-
-    /* Ensure images in chat messages are responsive */
-    .message-content img {
-        max-width: 100%;
-        height: auto;
-        display: block;
-        margin: 5px 0;
+    .ql-editor { 
+        background-color: #fff !important; 
     }
-
-    /* Buttons styling */
-    .gap-2 {
-        gap: 10px;
+    .ql-toolbar.ql-snow { 
+        border-radius: 8px 8px 0 0 !important; 
+        background: #f1f1f1 !important; 
     }
-
-    /* Fix Quill dropdown visibility */
-    .ql-picker-options {
-        position: absolute !important;
-        z-index: 1001 !important; /* Above toolbar and editor */
-        background-color: #fff !important; /* Visible background */
-        border: 1px solid #ced4da !important;
-        border-radius: 4px !important;
-        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2) !important;
-        min-width: 120px !important;
-        top: 100% !important; /* Position below the toolbar */
-        margin-top: 2px !important;
-        display: none; /* Initially hidden */
+    .ql-container.ql-snow { 
+        border-radius: 0 0 8px 8px !important; 
     }
-
-    .ql-picker-options.ql-expanded {
-        display: block !important; /* Show when expanded */
+    .btn-success { 
+        background-color: #28a745; 
+        border-color: #28a745; 
+        transition: background-color 0.3s ease; 
     }
-
-    /* Ensure dropdown items are visible and clickable */
-    .ql-picker-item {
-        color: #333 !important;
-        padding: 5px 10px !important;
-        cursor: pointer !important;
-    }
-
-    .ql-picker-item:hover {
-        background-color: #f0f0f0 !important;
-    }
-
-    /* Dark theme adjustments for dropdowns */
-    [data-bs-theme="dark"] .ql-picker-options {
-        background-color: #444 !important;
-        border-color: #666 !important;
-    }
-
-    [data-bs-theme="dark"] .ql-picker-item {
-        color: #f8f9fa !important;
-    }
-
-    [data-bs-theme="dark"] .ql-picker-item:hover {
-        background-color: #555 !important;
-    }
-
-    /* Fix color and background picker */
-    .ql-snow .ql-picker.ql-color .ql-picker-options,
-    .ql-snow .ql-picker.ql-background .ql-picker-options {
-        padding: 5px !important;
-        display: none; /* Initially hidden */
-        flex-wrap: wrap !important;
-        width: 200px !important;
-    }
-
-    .ql-snow .ql-picker.ql-color .ql-picker-options.ql-expanded,
-    .ql-snow .ql-picker.ql-background .ql-picker-options.ql-expanded {
-        display: flex !important; /* Show when expanded */
-    }
-
-    .ql-snow .ql-picker.ql-color .ql-picker-item,
-    .ql-snow .ql-picker.ql-background .ql-picker-item {
-        width: 20px !important;
-        height: 20px !important;
-        margin: 2px !important;
-        border-radius: 3px !important;
-    }
-
-    /* Ensure toolbar buttons and dropdowns are clickable */
-    .ql-snow .ql-toolbar button,
-    .ql-snow .ql-toolbar .ql-picker-label {
-        cursor: pointer !important;
-    }
-
-    /* Fix alignment picker visibility */
-    .ql-snow .ql-picker.ql-align .ql-picker-item {
-        color: #000000 !important; /* Text color for alignment options */
-        position: relative !important;
-        padding-left: 25px !important; /* Space for the icon */
-    }
-
-    .ql-snow .ql-picker.ql-align .ql-picker-item:before {
-        content: attr(data-value) !important; /* Use the value as text for now */
-        position: absolute !important;
-        left: 5px !important;
-        top: 50% !important;
-        transform: translateY(-50%) !important;
-        font-family: 'Arial', sans-serif !important; /* Fallback font */
-    }
-
-    .ql-snow .ql-align .ql-picker-item[data-value=""]::before {
-        content: "Left" !important;
-    }
-
-    .ql-snow .ql-align .ql-picker-item[data-value="center"]::before {
-        content: "Center" !important;
-    }
-
-    .ql-snow .ql-align .ql-picker-item[data-value="right"]::before {
-        content: "Right" !important;
-    }
-
-    .ql-snow .ql-align .ql-picker-item[data-value="justify"]::before {
-        content: "Justify" !important;
-    }
-
-    [data-bs-theme="dark"] .ql-snow .ql-picker.ql-align .ql-picker-item {
-        color: #f8f9fa !important; /* Text color in dark theme */
-    }
-
-    [data-bs-theme="dark"] .ql-snow .ql-picker.ql-align .ql-picker-item:before {
-        color: #f8f9fa !important; /* Icon color in dark theme */
+    .btn-success:hover { 
+        background-color: #218838; 
+        border-color: #1e7e34; 
     }
 </style>
 {% endblock %}

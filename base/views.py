@@ -19,6 +19,8 @@ from .email_scraper import process_excel
 from datetime import datetime, timedelta
 import pytz
 from django.contrib.auth import get_user_model
+from django.db.models import Q
+User = get_user_model()
 
 # Dummy email templates for guest posting
 DUMMY_EMAIL_TEMPLATES = [
@@ -391,6 +393,7 @@ def extract_latest_reply(email_body):
         print(f"Extracted result: {result}")
 
     return result if result else email_body.split('\n')[0].strip() if email_body.strip() else "No reply content found."
+
 def markdown_to_html(text):
     """Convert basic Markdown to HTML for plain text emails"""
     # Convert **bold** or *bold* to <strong>
@@ -639,52 +642,83 @@ def extract_base64_images(html_content):
             continue
     
     return html_content, images
-
 @login_required
 def chat(request, contact_email=None):
     if contact_email == 'new':
         new_email = request.GET.get('email', '').strip()
-        if not new_email or '@' not in new_email:
+        # Validate email: should not be empty and must contain '@' and a domain
+        if not new_email or '@' not in new_email or '.' not in new_email.split('@')[1]:
             messages.error(request, 'Please provide a valid email address to start a new chat.')
             return redirect('display_emails')
         return redirect('chat', contact_email=new_email)
 
-    chat_history = EmailMessage.objects.filter(
-        user=request.user,
-        receiver=contact_email
-    ) | EmailMessage.objects.filter(
-        user=request.user,
-        sender=contact_email
-    ) if contact_email else EmailMessage.objects.none()
-    chat_history = chat_history.order_by('timestamp').distinct()
+    # Pre-fetch chat contacts to reduce database queries
+    chat_emails_qs = EmailMessage.objects.filter(
+        user=request.user
+    ).exclude(
+        sender=request.user.email
+    ).exclude(
+        receiver=request.user.email
+    ).values('sender', 'receiver').distinct()
 
+    contact_emails = set()
+    for email_data in chat_emails_qs:
+        sender = email_data['sender']
+        receiver = email_data['receiver']
+        contact = sender if receiver == settings.DEFAULT_FROM_EMAIL else receiver
+        if contact != request.user.email and contact != settings.DEFAULT_FROM_EMAIL:
+            contact_emails.add(contact)
+
+    # Fetch chat history only if a contact is selected
+    chat_history = EmailMessage.objects.none()
+    last_message_id = 0
+    if contact_email:
+        chat_history = EmailMessage.objects.filter(
+            Q(user=request.user, receiver=contact_email) | Q(user=request.user, sender=contact_email)
+        ).order_by('timestamp').distinct()
+        last_message_id = chat_history.order_by('-id').first().id if chat_history.exists() else 0
+
+        # Mark messages as read when chat is opened
+        unread_messages = chat_history.filter(is_sent=False, is_read=False)
+        unread_messages.update(is_read=True)
+
+    # Handle AJAX request for new messages (real-time updates without full reload)
     if request.GET.get('ajax') == 'true':
         last_message_id = int(request.GET.get('last_message_id', 0))
-        new_messages = chat_history.filter(id__gt=last_message_id)
+        new_messages = EmailMessage.objects.filter(
+            user=request.user,
+            id__gt=last_message_id,
+            sender__in=contact_emails,
+            is_sent=False,
+        ).order_by('timestamp')
+
         messages_data = []
+        current_chat_open = request.path.split('/')[-2] if '/chat/' in request.path else None
         for msg in new_messages:
             messages_data.append({
                 'id': msg.id,
                 'sender': msg.sender,
+                'receiver': msg.receiver,
                 'message': msg.message,
-                'timestamp': msg.timestamp.strftime('%b %d, %H:%M'),
+                'timestamp': msg.timestamp.astimezone(pytz.timezone('Asia/Karachi')).strftime('%b %d, %H:%M'),
                 'is_sent': msg.is_sent,
+                'is_read': msg.is_read,
                 'has_attachment': msg.has_attachment,
                 'attachment_url': msg.attachment.url if msg.has_attachment else None,
                 'attachment_name': msg.attachment.name.split('/')[-1] if msg.has_attachment else None,
-                'inline_images': msg.inline_images if hasattr(msg, 'inline_images') else []
+                'inline_images': msg.inline_images if hasattr(msg, 'inline_images') else [],
             })
-        return JsonResponse({'messages': messages_data})
+        return JsonResponse({'status': 'success', 'messages': messages_data})
 
-    if contact_email:
+    # Check for new emails via IMAP and update without full reload
+    if contact_emails:
         try:
             imap_server = imaplib.IMAP4_SSL('imap.gmail.com')
             imap_server.login(settings.EMAIL_HOST_USER, settings.EMAIL_HOST_PASSWORD)
             imap_server.select('INBOX')
-            # Search for emails from the specific contact, including replies
-            search_criteria = f'(FROM "{contact_email}")'
-            _, message_numbers = imap_server.search(None, 'ALL', search_criteria)
-            
+            search_criteria = '(UNSEEN)'
+            _, message_numbers = imap_server.search(None, search_criteria)
+
             if message_numbers[0]:
                 for num in message_numbers[0].split():
                     try:
@@ -701,82 +735,75 @@ def chat(request, contact_email=None):
                         if not body or len(body.strip()) < 3:
                             print(f"Skipping email {num}: Empty or too short body")
                             continue
-                        sender = msg.get('From', contact_email)
+                        sender = msg.get('From', '')
                         if '<' in sender and '>' in sender:
                             sender = sender.split('<')[1].split('>')[0].strip()
-                        message_id = msg.get('Message-ID', None)
-                        if not message_id:
-                            message_id = f"{sender}_{hash(body[:50])}"  # Use first 50 chars for hash
-                        # Check for duplicates using Message-ID or sender+timestamp
-                        existing_message = EmailMessage.objects.filter(
-                            user=request.user,
-                            sender=sender,
-                            message_id=message_id
-                        ).exists() if message_id else EmailMessage.objects.filter(
-                            user=request.user,
-                            sender=sender,
-                            message=body,
-                            timestamp__gte=get_email_date(msg) - timedelta(minutes=5),
-                            timestamp__lte=get_email_date(msg) + timedelta(minutes=5)
-                        ).exists()
-                        if not existing_message:
-                            new_message = EmailMessage.objects.create(
+                        if sender in contact_emails:
+                            message_id = msg.get('Message-ID', None)
+                            if not message_id:
+                                message_id = f"{sender}_{hash(body[:50])}"
+                            existing_message = EmailMessage.objects.filter(
                                 user=request.user,
                                 sender=sender,
-                                receiver=settings.DEFAULT_FROM_EMAIL,
-                                message=body,
-                                is_sent=False,
-                                timestamp=get_email_date(msg),
                                 message_id=message_id
-                            )
-                            extract_attachments(msg, new_message)
-                            print(f"Added new email from {sender} with ID {message_id}")
-                        else:
-                            print(f"Skipping duplicate email from {sender} with ID {message_id}")
+                            ).exists()
+                            if not existing_message:
+                                new_message = EmailMessage.objects.create(
+                                    user=request.user,
+                                    sender=sender,
+                                    receiver=settings.DEFAULT_FROM_EMAIL,
+                                    message=body,
+                                    is_sent=False,
+                                    timestamp=get_email_date(msg),
+                                    message_id=message_id,
+                                    is_read=False
+                                )
+                                extract_attachments(msg, new_message)
+                                print(f"Added new email from {sender} with ID {message_id}")
                     except Exception as e:
                         print(f"Error processing email {num}: {str(e)}")
                         continue
-            imap_server.logout()
+                imap_server.logout()
         except Exception as e:
             print(f"IMAP Error: {str(e)}")
             pass
 
+    # Handle sending new messages
     if request.method == 'POST' and contact_email:
         new_message = request.POST.get('message', '').strip()
         attachment = request.FILES.get('attachment') if 'attachment' in request.FILES else None
-        
+
         try:
             pakistan_tz = pytz.timezone('Asia/Karachi')
             current_time = datetime.now(pakistan_tz)
-            
+
             new_message, inline_images = extract_base64_images(new_message)
-            
-            # Replace cid: references with URLs before sending
+
             if inline_images:
                 for img in inline_images:
                     new_message = new_message.replace(f'cid:{img["cid"]}', img["url"])
-            
+
             email = DjangoEmailMessage(
                 subject='Follow-up Message',
                 body=new_message if new_message else "Please find the attached file.",
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 to=[contact_email],
             )
-            
+
             email.content_subtype = 'html'
-            
+
             for img in inline_images:
                 with open(img['path'], 'rb') as f:
                     mime_image = MIMEImage(f.read())
                     mime_image.add_header('Content-ID', f"<{img['cid']}>")
                     mime_image.add_header('Content-Disposition', 'inline', filename=os.path.basename(img['path']))
                     email.attach(mime_image)
-            
+
             if attachment:
                 email.attach(attachment.name, attachment.read(), attachment.content_type)
-            
+
             email.send(fail_silently=False)
-            
+
             email_message = EmailMessage.objects.create(
                 user=request.user,
                 sender=settings.DEFAULT_FROM_EMAIL,
@@ -787,12 +814,12 @@ def chat(request, contact_email=None):
                 has_attachment=bool(attachment),
                 inline_images=[img['url'] for img in inline_images]
             )
-            
+
             if attachment:
                 email_message.attachment = attachment
                 email_message.has_attachment = True
                 email_message.save()
-            
+
             return JsonResponse({
                 'status': 'success',
                 'message': f'Message sent to {contact_email}.',
@@ -807,20 +834,52 @@ def chat(request, contact_email=None):
                     'attachment_name': email_message.attachment.name.split('/')[-1] if email_message.has_attachment else None,
                     'inline_images': email_message.inline_images
                 },
-                'redirect_url': f'/chat/{contact_email}/'  # Added redirect URL for client-side
+                'redirect_url': f'/chat/{contact_email}/'
             })
-            
+
         except Exception as e:
             return JsonResponse({
                 'status': 'error',
                 'message': f'Error sending message: {str(e)}'
             }, status=500)
 
-    sent_emails = EmailMessage.objects.filter(user=request.user, is_sent=True).values_list('receiver', flat=True).distinct()
-    received_emails = EmailMessage.objects.filter(user=request.user, is_sent=False).values_list('sender', flat=True).distinct()
-    chat_emails = set(list(sent_emails) + list(received_emails))
-    
-    # Preprocess chat history to replace cid: references with URLs
+    # Prepare chat_emails for sidebar with optimized queries, sorted by latest message (reverse chronological)
+    email_list = []
+    all_messages = EmailMessage.objects.filter(user=request.user).order_by('-timestamp')
+    seen_contacts = set()
+    for email_data in chat_emails_qs:
+        sender = email_data['sender']
+        receiver = email_data['receiver']
+        contact = sender if receiver == settings.DEFAULT_FROM_EMAIL else receiver
+        if contact != request.user.email and contact != settings.DEFAULT_FROM_EMAIL and contact not in seen_contacts:
+            seen_contacts.add(contact)
+            last_message = all_messages.filter(
+                Q(sender=contact, receiver=settings.DEFAULT_FROM_EMAIL) | 
+                Q(receiver=contact, sender=settings.DEFAULT_FROM_EMAIL)
+            ).first()
+            # Only count unread messages if no specific chat is open or if it's a new message
+            unread_count = 0
+            if not contact_email or (contact_email and contact != contact_email):
+                unread_count = EmailMessage.objects.filter(
+                    user=request.user,
+                    sender=contact,
+                    is_sent=False,
+                    is_read=False
+                ).count()
+            last_message_text = ""
+            if last_message:
+                last_message_text = last_message.message
+                if last_message.is_sent:
+                    last_message_text = f"YOU: {last_message_text}"
+            email_list.append({
+                'email': contact,
+                'unread_count': unread_count,
+                'last_message': last_message_text if last_message else "No message yet",
+                'last_timestamp': last_message.timestamp.astimezone(pytz.timezone('Asia/Karachi')).strftime('%b %d, %H:%M') if last_message else ""
+            })
+    chat_emails = sorted(email_list, key=lambda x: x.get('last_timestamp', ''), reverse=True)
+
+    # Preprocess chat history
     processed_chat_history = []
     for message in chat_history:
         processed_message = message.message
@@ -841,10 +900,11 @@ def chat(request, contact_email=None):
                 inline_images=message.inline_images
             )
         )
-    
+
     context = {
         'selected_email': contact_email,
         'chat_history': processed_chat_history,
-        'chat_emails': chat_emails
+        'chat_emails': chat_emails,
+        'last_message_id': last_message_id
     }
     return render(request, 'base/chat.html', context)
