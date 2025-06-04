@@ -20,27 +20,8 @@ from datetime import datetime, timedelta
 import pytz
 from django.contrib.auth import get_user_model
 from django.db.models import Q
+import requests
 User = get_user_model()
-
-# Dummy email templates for guest posting
-DUMMY_EMAIL_TEMPLATES = [
-    {
-        'subject': 'Guest Post Opportunity for Your Website',
-        'body': 'Hello,\n\nI hope this email finds you well! My name is [Your Name], and I\'m reaching out to discuss a potential guest post opportunity for your website. We specialize in creating high-quality, engaging content that aligns with your audience\'s interests.\n\nI\'d love to contribute a well-researched article that provides value to your readers. Please let me know if you\'re open to this idea, and I can share some topic suggestions.\n\nLooking forward to hearing from you!\n\n'
-    },
-    {
-        'subject': 'Collaboration Proposal: Guest Blog Post',
-        'body': 'Hi there,\n\nI\'m [Your Name], a content creator passionate about [your niche]. I\'ve been following your website and love the content you share. I\'d like to propose a guest blog post that complements your site\'s theme and adds value for your readers.\n\nIf you\'re interested, I can send over a few topic ideas or work with any guidelines you provide.\n\nLet\'s connect and discuss further!\n\n'
-    },
-    {
-        'subject': 'Interested in a Guest Post Partnership?',
-        'body': 'Dear [Website Owner],\n\nGreetings! I\'m [Your Name], and I specialize in crafting informative and engaging content. I believe a guest post on your website could be a great way to share valuable insights with your audience.\n\nI\'m happy to write on a topic that fits your site\'s focus. Please let me know your guest posting guidelines or any preferred topics.\n\nExcited to collaborate!\n\n'
-    },
-    {
-        'subject': 'Let\'s Boost Your Site with a Guest Post',
-        'body': 'Hello,\n\nMy name is [Your Name], and I\'m a writer with a passion for creating content that resonates with readers. I\'d love to contribute a guest post to your website, offering fresh perspectives and actionable insights.\n\nIf this sounds interesting, I can provide topic ideas or follow your editorial guidelines.\n\nLooking forward to your response!\n\n'
-    }
-]
 
 @login_required
 def upload_excel(request):
@@ -211,20 +192,59 @@ def download_file(request):
         return HttpResponse("File not found", status=404)
     except Exception as e:
         return HttpResponse(f"Error: {str(e)}", status=500)
+@login_required
+def generate_email(request):
+    ai_subject = "Your AI Generated Proposal"
+    ai_body = "Hello,\n\nThis is a generated email.\n\nRegards,\nYour Name"
 
+    try:
+        response = requests.post(
+            "https://api.litapi.dev/email-proposal",
+            headers={'Authorization': 'sk-19dd4ca92a3cf31a'}
+        )
+        if response.status_code == 200:
+            output = response.json().get("output", "").strip()
+
+            if output.lower().startswith("subject:"):
+                lines = output.splitlines()
+                ai_subject = lines[0].replace("Subject:", "").strip()
+                ai_body = "\n".join(lines[1:]).strip()
+            else:
+                ai_body = output
+        else:
+            pass
+
+        # Add user's name at the end
+        user_name = f"{request.user.first_name} {request.user.last_name}".strip()
+        if not user_name:
+            user_name = request.user.username
+        ai_body += f"\n\nRegards,\n{user_name}"
+
+        # Normalize newlines: Replace multiple consecutive newlines with a single newline
+        ai_body = re.sub(r'\n\s*\n+', '\n', ai_body)
+
+        # Convert single newline to <br> for Quill editor
+        ai_body = ai_body.replace('\n', '<br>')
+
+    except Exception as e:
+        pass
+
+    return JsonResponse({
+        'error': False,
+        'subject': ai_subject,
+        'body': ai_body,
+    })
 @login_required
 def compose_email(request):
     if request.method == 'POST':
         user_email = request.POST.get('email')
         subject = request.POST.get('subject')
-        body = request.POST.get('body')
+        body = request.POST.get('body')  # This is now HTML from Quill editor
         try:
-            # Split comma-separated emails and clean them
             email_list = [e.strip() for e in user_email.split(',') if e.strip()]
             valid_emails = []
             invalid_emails = []
 
-            # Validate emails (basic check for @ and non-empty)
             for e in email_list:
                 if '@' in e and '.' in e.split('@')[1]:
                     valid_emails.append(e)
@@ -239,31 +259,31 @@ def compose_email(request):
                     'body': body
                 })
 
-            # Send email to all valid recipients
-            send_mail(
+            # Send email with HTML body
+            from_email = settings.DEFAULT_FROM_EMAIL
+            email_message = DjangoEmailMessage(
                 subject=subject,
-                message=body,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=valid_emails,
-                fail_silently=False,
+                body=body,
+                from_email=from_email,
+                to=valid_emails,
             )
+            email_message.content_subtype = 'html'  # Set content type to HTML
+            email_message.send(fail_silently=False)
 
-            # Store sent emails in database
+            # Save to DB
             for recipient in valid_emails:
                 EmailMessage.objects.create(
                     user=request.user,
-                    sender=settings.DEFAULT_FROM_EMAIL,
+                    sender=from_email,
                     receiver=recipient,
-                    message=body,
+                    message=body,  # Save HTML body as-is
                     is_sent=True
                 )
 
-            # Prepare success message
-            success_message = f'Email sent successfully to {", ".join(valid_emails)}.'
+            success_message = f'Email sent to {", ".join(valid_emails)}.'
             if invalid_emails:
                 success_message += f' Invalid emails skipped: {", ".join(invalid_emails)}.'
             messages.success(request, success_message)
-            # Redirect to chat page with the first valid email
             return redirect('chat', contact_email=valid_emails[0])
 
         except Exception as e:
@@ -273,23 +293,15 @@ def compose_email(request):
                 'subject': subject,
                 'body': body
             })
+
     else:
         user_email = request.GET.get('email', '')
-        # Select a random dummy template
-        selected_template = random.choice(DUMMY_EMAIL_TEMPLATES)
-        subject = selected_template['subject']
-        # Add user's name to the body
-        user_name = f"{request.user.first_name} {request.user.last_name}".strip()
-        if not user_name:
-            user_name = request.user.username  # Fallback to username if names are empty
-        body = f"{selected_template['body']}Regards,\n{user_name}"
         context = {
             'email': user_email,
-            'subject': subject,
-            'body': body
+            'subject': '',
+            'body': ''
         }
         return render(request, 'base/compose_email.html', context)
-
 def extract_latest_reply(email_body):
     """Extract only the latest reply from email thread, excluding quoted content and signatures"""
     # Common patterns to identify quoted text or signatures
@@ -646,7 +658,6 @@ def extract_base64_images(html_content):
 def chat(request, contact_email=None):
     if contact_email == 'new':
         new_email = request.GET.get('email', '').strip()
-        # Validate email: should not be empty and must contain '@' and a domain
         if not new_email or '@' not in new_email or '.' not in new_email.split('@')[1]:
             messages.error(request, 'Please provide a valid email address to start a new chat.')
             return redirect('display_emails')
@@ -773,6 +784,11 @@ def chat(request, contact_email=None):
         new_message = request.POST.get('message', '').strip()
         attachment = request.FILES.get('attachment') if 'attachment' in request.FILES else None
 
+        # Normalize message to remove extra newlines and spacing
+        new_message = re.sub(r'<br>\s*<br>|<p>\s*</p>|<p>\s*(?:<br>)?\s*</p>', '', new_message)
+        new_message = re.sub(r'\n\s*\n+', '\n', new_message.replace('<br>', '\n'))
+        new_message = new_message.replace('\n', '<br>').strip()
+
         try:
             pakistan_tz = pytz.timezone('Asia/Karachi')
             current_time = datetime.now(pakistan_tz)
@@ -857,7 +873,6 @@ def chat(request, contact_email=None):
                 Q(sender=contact, receiver=settings.DEFAULT_FROM_EMAIL) | 
                 Q(receiver=contact, sender=settings.DEFAULT_FROM_EMAIL)
             ).first()
-            # Only count unread messages if no specific chat is open or if it's a new message
             unread_count = 0
             if not contact_email or (contact_email and contact != contact_email):
                 unread_count = EmailMessage.objects.filter(

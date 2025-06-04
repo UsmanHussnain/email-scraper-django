@@ -69,9 +69,6 @@
                             <i class="fas fa-comments me-2"></i>Chat with {{ selected_email }}
                         </h5>
                         <div>
-                            <button class="btn btn-sm btn-light text-success border-success me-2" data-bs-toggle="modal" data-bs-target="#emailTemplateModal">
-                                <i class="fas fa-file-alt me-1"></i> Templates
-                            </button>
                             <a href="{% url 'compose_email' %}?email={{ selected_email }}" class="btn btn-sm btn-warning me-2">
                                 <i class="fas fa-paper-plane me-1"></i> Compose Email
                             </a>
@@ -81,7 +78,6 @@
                             <a href="{% url 'chat_list' %}" class="btn btn-sm btn-danger">
                                 <i class="fas fa-close me-1"></i> Close
                             </a>
-                            
                         </div>
                     {% else %}
                         <h5 class="mb-0">
@@ -197,6 +193,9 @@
                                 <input type="hidden" name="message" id="messageInput">
                             </div>
                             <div class="d-flex justify-content-end mt-2 gap-2">
+                                <button class="btn btn-sm btn-primary me-2" id="generateEmailBtn">
+                                   <i class="fas fa-robot me-1"></i> Generate Email
+                                </button>
                                 <label for="attachmentInput" class="btn btn-outline-secondary m-0">
                                     <i class="fas fa-paperclip"></i> Attach File
                                 </label>
@@ -245,55 +244,6 @@
     </div>
 </div>
 
-<!-- Email Templates Modal -->
-<div class="modal fade" id="emailTemplateModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header bg-success text-white">
-                <h5 class="modal-title">Email Templates</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <div class="row">
-                    <div class="col-md-4">
-                        <div class="list-group" id="templateList">
-                            <a href="#" class="list-group-item list-group-item-action active" data-template="template1" style="background-color: #28a745; color: white;">
-                                Guest Post Opportunity
-                            </a>
-                            <a href="#" class="list-group-item list-group-item-action" data-template="template2">
-                                Collaboration Proposal
-                            </a>
-                            <a href="#" class="list-group-item list-group-item-action" data-template="template3">
-                                Guest Post Partnership
-                            </a>
-                            <a href="#" class="list-group-item list-group-item-action" data-template="template4">
-                                Boost Your Site
-                            </a>
-                        </div>
-                    </div>
-                    <div class="col-md-8">
-                        <div class="card h-100 shadow-sm" style="background-color: #f8f9fa;">
-                            <div class="card-header bg-light">
-                                <h6 id="templateTitle" class="mb-0">Template Preview</h6>
-                            </div>
-                            <div class="card-body">
-                                <div id="templatePreview" class="p-2" style="height: 300px; overflow-y: auto;">
-                                    <!-- Template content will be loaded here -->
-                                </div>
-                            </div>
-                            <div class="card-footer bg-light">
-                                <button id="useTemplateBtn" class="btn btn-sm btn-success">
-                                    <i class="fas fa-check me-1"></i> Use This Template
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
 <!-- Confirmation Modal for Delete -->
 <div class="modal fade" id="deleteConfirmModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
@@ -335,7 +285,7 @@
         const deleteConfirmModal = new bootstrap.Modal(document.getElementById('deleteConfirmModal'));
         let selected_email = "{{ selected_email|escapejs }}";
 
-        // Initialize Quill editor
+        // Initialize Quill editor with empty content
         var quill = new Quill('#editor', {
             theme: 'snow',
             modules: {
@@ -343,6 +293,7 @@
             },
             placeholder: 'Type your message here...'
         });
+        quill.root.innerHTML = ''; // Ensure editor is empty initially
 
         // Handle dropdown visibility for Quill toolbar
         function handleDropdownVisibility() {
@@ -377,26 +328,6 @@
         }
         handleDropdownVisibility();
 
-        // Template data with fixed HTML
-        const templates = {
-            template1: { 
-                title: "Guest Post Opportunity", 
-                content: `<p>Hello,</p><p>I hope this email finds you well! My name is {{ user.first_name|default:user.username }}. I'm reaching out to discuss a potential guest post opportunity for your website. We specialize in creating high-quality, engaging content that aligns with your audience's interests.</p><p>I'd love to contribute a well-researched article that provides value to your readers. Please let me know if you're open to this idea, and I can share some topic suggestions.</p><p>Looking forward to hearing from you!</p><p>Regards,</p><p>{{ user.first_name|default:user.username }}</p>` 
-            },
-            template2: { 
-                title: "Collaboration Proposal", 
-                content: `<p>Hi there,</p><p>I'm {{ user.first_name|default:user.username }}, a content creator passionate about [your niche]. I've been following your website and love the content you share. I'd like to propose a guest blog post that complements your site's theme and adds value for your readers.</p><p>If you're interested, I can send over a few topic ideas or work with any guidelines you provide.</p><p>Let's connect and discuss further!</p><p>Regards,</p><p>{{ user.first_name|default:user.username }}</p>` 
-            },
-            template3: { 
-                title: "Guest Post Partnership", 
-                content: `<p>Dear [Website Owner],</p><p>Greetings! I'm {{ user.first_name|default:user.username }}, and I specialize in crafting informative and engaging content. I believe a guest post on your website could be a great way to share valuable insights with your audience.</p><p>I'm happy to write on a topic that fits your site's focus. Please let me know your guest posting guidelines or any preferred topics.</p><p>Excited to collaborate!</p><p>Regards,</p><p>{{ user.first_name|default:user.username }}</p>` 
-            },
-            template4: { 
-                title: "Boost Your Site", 
-                content: `<p>Hello,</p><p>My name is {{ user.first_name|default:user.username }}, and I'm a writer with a passion for creating content that resonates with readers. I'd love to contribute a guest post to your website, offering fresh perspectives and actionable insights.</p><p>If this sounds interesting, I can provide topic ideas or follow your editorial guidelines.</p><p>Looking forward to your response!</p><p>Regards,</p><p>{{ user.first_name|default:user.username }}</p>` 
-            }
-        };
-
         // Show Django messages as toasts
         {% for message in messages %}
             showToast("{{ message|escapejs }}", "{{ message.tags }}");
@@ -406,34 +337,33 @@
         const chatContainer = document.getElementById('chatContainer');
         if (chatContainer) chatContainer.scrollTop = chatContainer.scrollHeight;
 
-        // Handle template selection
-        $('[data-template]').click(function(e) {
-            e.preventDefault();
-            const templateId = $(this).data('template');
-            const template = templates[templateId];
-            $('[data-template]').removeClass('active').css({'background-color': '', 'color': ''});
-            $(this).addClass('active').css({'background-color': '#28a745', 'color': 'white'});
-            $('#templateTitle').text(template.title);
-            $('#templatePreview').html(template.content);
-        });
+        // Generate email via API on button click
+        $('#generateEmailBtn').click(function() {
+            const genBtn = $(this);
+            const originalText = genBtn.html();
+            genBtn.html('<i class="fas fa-spinner fa-spin"></i> Generating...').prop('disabled', true);
 
-        $('#emailTemplateModal').on('show.bs.modal', function() {
-            if ($('[data-template]').length > 0) {
-                const firstTemplate = $('[data-template]').first().data('template');
-                $('#templateTitle').text(templates[firstTemplate].title);
-                $('#templatePreview').html(templates[firstTemplate].content);
-                $('[data-template]').first().addClass('active').css({'background-color': '#28a745', 'color': 'white'});
-            }
-        });
-
-        $('#useTemplateBtn').click(function() {
-            const activeTemplate = $('[data-template].active').data('template');
-            if (activeTemplate && templates[activeTemplate]) {
-                quill.root.innerHTML = templates[activeTemplate].content;
-                $('#emailTemplateModal').modal('hide');
-                quill.focus();
-                showToast('Template applied successfully!', 'success');
-            }
+            $.ajax({
+                url: '{% url "generate_email" %}',
+                type: 'GET',
+                data: { email: selected_email },
+                success: function(response) {
+                    if (!response.error && response.body) {
+                        // Load the HTML body into Quill editor
+                        quill.root.innerHTML = response.body;
+                        quill.focus();
+                        showToast('Email body generated successfully!', 'success');
+                    } else {
+                        showToast(response.message || 'No email body generated.', 'warning');
+                    }
+                },
+                error: function(xhr) {
+                    showToast('Error generating email body.', 'danger');
+                },
+                complete: function() {
+                    genBtn.html(originalText).prop('disabled', false);
+                }
+            });
         });
 
         window.updateFileName = function(input) {
@@ -467,7 +397,7 @@
                     if (response.status === 'success') {
                         showToast(response.message, 'success');
                         appendMessageToChat(response.new_message);
-                        quill.root.innerHTML = '';
+                        quill.root.innerHTML = ''; // Clear editor after sending
                         $('#attachmentInput').val('');
                         $('#fileName').text('No file selected');
                         submitBtn.html(originalText).prop('disabled', false);
@@ -736,19 +666,6 @@
     }
     .btn:disabled { 
         opacity: 0.7; 
-    }
-    #templatePreview { 
-        background-color: white; 
-        border: 1px solid #dee2e6; 
-        border-radius: 5px; 
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; 
-        font-size: 14px; 
-        line-height: 1.5; 
-    }
-    [data-bs-theme="dark"] #templatePreview { 
-        background-color: #343a40; 
-        color: #f8f9fa; 
-        border-color: #495057; 
     }
     .ql-editor { 
         background-color: #fff !important; 

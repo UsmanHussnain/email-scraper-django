@@ -4,14 +4,17 @@
 <div class="container py-5">
     <div class="row justify-content-center">
         <div class="col-lg-8">
-            <div class="card bg-white">
-                <div class="card-header bg-primary text-white">
+            <div class="card shadow-sm" style="border-radius: 12px;">
+                <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
                     <h2 class="mb-0">
                         <i class="fas fa-paper-plane me-2"></i>Compose Email
                     </h2>
+                    <button type="button" id="compose-ai-btn" class="btn btn-light text-primary">
+                        <i class="fas fa-robot me-1"></i>Compose (AI)
+                    </button>
                 </div>
                 <div class="card-body">
-                    <form method="POST">
+                    <form method="POST" id="composeForm">
                         {% csrf_token %}
                         <div class="mb-3">
                             <label for="email" class="form-label">To:</label>
@@ -23,19 +26,59 @@
                         </div>
                         <div class="mb-3">
                             <label for="body" class="form-label">Message:</label>
-                            <textarea class="form-control" id="body" name="body" rows="8" required>{{ body }}</textarea>
+                            <div class="editor-container">
+                                <div id="editor-toolbar" class="ql-toolbar ql-snow" style="border: 1px solid #ced4da; border-bottom: none; border-radius: 4px 4px 0 0; background: #f8f9fa; padding: 2px 5px; line-height: 1;">
+                                    <span class="ql-formats">
+                                        <select class="ql-font">
+                                            <option value="sans-serif" selected>Sans Serif</option>
+                                            <option value="serif">Serif</option>
+                                            <option value="monospace">Monospace</option>
+                                        </select>
+                                        <select class="ql-size">
+                                            <option value="small">Small</option>
+                                            <option value="normal" selected>Normal</option>
+                                            <option value="large">Large</option>
+                                            <option value="huge">Huge</option>
+                                        </select>
+                                    </span>
+                                    <span class="ql-formats">
+                                        <button class="ql-bold"></button>
+                                        <button class="ql-italic"></button>
+                                        <button class="ql-underline"></button>
+                                        <button class="ql-strike"></button>
+                                    </span>
+                                    <span class="ql-formats">
+                                        <select class="ql-color"></select>
+                                        <select class="ql-background"></select>
+                                    </span>
+                                    <span class="ql-formats">
+                                        <button class="ql-list" value="ordered"></button>
+                                        <button class="ql-list" value="bullet"></button>
+                                        <select class="ql-align">
+                                            <option value="" selected></option>
+                                            <option value="center"></option>
+                                            <option value="right"></option>
+                                            <option value="justify"></option>
+                                        </select>
+                                    </span>
+                                    <span class="ql-formats">
+                                        <button class="ql-link"></button>
+                                        <button class="ql-clean"></button>
+                                    </span>
+                                </div>
+                                <div id="editor" class="ql-container ql-snow" style="height: 250px; border: 1px solid #ced4da; border-top: none; border-radius: 0 0 4px 4px; background: #fff;"></div>
+                                <input type="hidden" name="body" id="bodyInput">
+                            </div>
                         </div>
-                        <div class="d-grid gap-2">
+                        <div class="d-flex justify-content-between gap-2">
+                            <a href="{% url 'display_emails' %}" class="btn btn-secondary">
+                                <i class="fas fa-arrow-left me-2"></i>Back to Emails
+                            </a>
                             <button type="submit" class="btn btn-primary">
                                 <i class="fas fa-paper-plane me-2"></i>Send Email
                             </button>
                         </div>
                     </form>
-                </div>
-                <div class="card-footer bg-light">
-                    <a href="{% url 'display_emails' %}" class="btn btn-secondary">
-                        <i class="fas fa-arrow-left me-2"></i>Back to Emails
-                    </a>
                 </div>
             </div>
         </div>
@@ -53,23 +96,164 @@
     </div>
 </div>
 
+<!-- Include Quill.js and jQuery -->
+<link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+<script src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script>
     $(document).ready(function() {
         const toastLiveExample = document.getElementById('liveToast');
         const toast = new bootstrap.Toast(toastLiveExample);
 
+        // Initialize Quill editor
+        var quill = new Quill('#editor', {
+            theme: 'snow',
+            modules: {
+                toolbar: '#editor-toolbar'
+            },
+            placeholder: 'Type your message here...'
+        });
+
+        // Load initial body content into Quill editor (if any, e.g., after form validation error)
+        quill.root.innerHTML = `{{ body|safe }}`;
+
+        // Handle dropdown visibility for Quill toolbar
+        function handleDropdownVisibility() {
+            $(document).on('click', function(e) {
+                if (!$(e.target).closest('.ql-picker-label').length && !$(e.target).closest('.ql-picker-options').length) {
+                    $('.ql-picker-options').removeClass('ql-expanded').hide();
+                    $('.ql-picker-label').removeClass('ql-expanded');
+                }
+            });
+
+            $('.ql-picker-label').on('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                const $picker = $(this).closest('.ql-picker');
+                const $options = $picker.find('.ql-picker-options');
+                if ($options.is(':visible')) {
+                    $options.removeClass('ql-expanded').hide();
+                    $(this).removeClass('ql-expanded');
+                } else {
+                    $('.ql-picker-options').removeClass('ql-expanded').hide();
+                    $('.ql-picker-label').removeClass('ql-expanded');
+                    $options.addClass('ql-expanded').show();
+                    $(this).addClass('ql-expanded');
+                }
+            });
+
+            $('.ql-picker-item').on('click', function() {
+                const $options = $(this).closest('.ql-picker-options');
+                $options.removeClass('ql-expanded').hide();
+                $options.siblings('.ql-picker-label').removeClass('ql-expanded');
+            });
+        }
+        handleDropdownVisibility();
+
         // Show Django messages as toasts
         {% for message in messages %}
-            showToast("{{ message }}", "{{ message.tags }}");
+            showToast("{{ message|escapejs }}", "{{ message.tags }}");
         {% endfor %}
+
+        // Handle form submission to capture Quill content
+        $('#composeForm').submit(function(e) {
+            const message = quill.root.innerHTML.trim();
+            if (!message || message === '<p><br></p>') {
+                showToast('Please enter a message.', 'warning');
+                e.preventDefault();
+                return false;
+            }
+            $('#bodyInput').val(message);
+        });
+
+        // Handle "Compose (AI)" button click
+        $('#compose-ai-btn').click(function() {
+            const aiBtn = $(this);
+            const originalText = aiBtn.html();
+            aiBtn.html('<i class="fas fa-spinner fa-spin"></i> Generating...').prop('disabled', true);
+
+            $.ajax({
+                url: '/generate-email/',
+                type: 'GET',
+                success: function(response) {
+                    if (!response.error && response.body) {
+                        // Load the HTML body into Quill editor
+                        quill.root.innerHTML = response.body;
+                        $('#subject').val(response.subject);
+                        quill.focus();
+                        showToast('Email body generated successfully!', 'success');
+                    } else {
+                        showToast(response.message || 'No email body generated.', 'warning');
+                    }
+                },
+                error: function(xhr) {
+                    showToast('Error generating email body.', 'danger');
+                },
+                complete: function() {
+                    aiBtn.html(originalText).prop('disabled', false);
+                }
+            });
+        });
 
         function showToast(message, type) {
             const toastBody = $('.toast-body');
-            toastBody.text(message);
-            toastBody.removeClass().addClass(`toast-body bg-${type}`);
+            const toastHeader = $('.toast-header');
+            toastBody.removeClass().addClass('toast-body');
+            toastHeader.removeClass().addClass('toast-header');
+            switch(type) {
+                case 'success': toastBody.addClass('text-success'); toastHeader.addClass('bg-success text-white'); break;
+                case 'danger': toastBody.addClass('text-danger'); toastHeader.addClass('bg-danger text-white'); break;
+                case 'warning': toastBody.addClass('text-warning'); toastHeader.addClass('bg-warning'); break;
+                default: toastBody.addClass('text-info'); toastHeader.addClass('bg-info text-white');
+            }
+            toastBody.html(message);
             toast.show();
         }
     });
 </script>
+
+<style>
+    .card {
+        border: none;
+        border-radius: 12px;
+        transition: transform 0.2s ease, box-shadow 0.3s ease;
+    }
+    .card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+    }
+    .btn-primary {
+        background-color: #007bff;
+        border-color: #007bff;
+        transition: background-color 0.3s ease;
+    }
+    .btn-primary:hover {
+        background-color: #0056b3;
+        border-color: #004085;
+    }
+    .btn-secondary {
+        background-color: #6c757d;
+        border-color: #6c757d;
+        transition: background-color 0.3s ease;
+    }
+    .btn-secondary:hover {
+        background-color: #5a6268;
+        border-color: #545b62;
+    }
+    .ql-editor {
+        background-color: #fff !important;
+    }
+    .ql-toolbar.ql-snow {
+        border-radius: 8px 8px 0 0 !important;
+        background: #f1f1f1 !important;
+    }
+    .ql-container.ql-snow {
+        border-radius: 0 0 8px 8px !important;
+    }
+    @media (max-width: 767.98px) {
+        #editor {
+            height: 200px !important;
+        }
+    }
+</style>
 {% endblock %}
