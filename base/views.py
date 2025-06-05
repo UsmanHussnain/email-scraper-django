@@ -1,26 +1,28 @@
 import os
 import asyncio
-import random
 import imaplib
 import email as email_module
 import base64
 import re
 from email.header import decode_header
 from email.mime.image import MIMEImage
-from django.shortcuts import render, redirect
+from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 from django.core.mail import send_mail, EmailMessage as DjangoEmailMessage
 from django.contrib import messages
+from django.urls import reverse
 import pandas as pd
-from .models import UploadedFile, EmailMessage
+from .models import *
 from .email_scraper import process_excel
 from datetime import datetime, timedelta
 import pytz
 from django.contrib.auth import get_user_model
 from django.db.models import Q
 import requests
+from urllib.parse import urlencode
+from accounts.models import *
 User = get_user_model()
 
 @login_required
@@ -236,72 +238,129 @@ def generate_email(request):
     })
 @login_required
 def compose_email(request):
+    bios = request.user.bios.all()
+    edit_bio = None
+    # Check for edit_id in GET request to pre-fill the form for editing
+    edit_id = request.GET.get('edit_id')
+    if edit_id and edit_id.isdigit():
+        edit_bio = get_object_or_404(Bio, id=int(edit_id), user=request.user)
+
     if request.method == 'POST':
-        user_email = request.POST.get('email')
-        subject = request.POST.get('subject')
-        body = request.POST.get('body')  # This is now HTML from Quill editor
-        try:
-            email_list = [e.strip() for e in user_email.split(',') if e.strip()]
-            valid_emails = []
-            invalid_emails = []
+        # Handle email form submission
+        if 'email' in request.POST:  # Check if email form is submitted
+            user_email = request.POST.get('email')
+            subject = request.POST.get('subject')
+            body = request.POST.get('body')
+            try:
+                email_list = [e.strip() for e in user_email.split(',') if e.strip()]
+                valid_emails = []
+                invalid_emails = []
 
-            for e in email_list:
-                if '@' in e and '.' in e.split('@')[1]:
-                    valid_emails.append(e)
-                else:
-                    invalid_emails.append(e)
+                for e in email_list:
+                    if '@' in e and '.' in e.split('@')[1]:
+                        valid_emails.append(e)
+                    else:
+                        invalid_emails.append(e)
 
-            if not valid_emails:
-                messages.error(request, 'No valid email addresses provided.')
+                if not valid_emails:
+                    messages.error(request, 'No valid email addresses provided.')
+                    return render(request, 'base/compose_email.html', {
+                        'email': user_email,
+                        'subject': subject,
+                        'body': body,
+                        'bios': bios,
+                        'edit_bio': edit_bio
+                    })
+
+                # Send email with HTML body
+                from_email = settings.DEFAULT_FROM_EMAIL
+                email_message = DjangoEmailMessage(
+                    subject=subject,
+                    body=body,
+                    from_email=from_email,
+                    to=valid_emails,
+                )
+                email_message.content_subtype = 'html'  # Set content type to HTML
+                email_message.send(fail_silently=False)
+
+                # Save to DB
+                for recipient in valid_emails:
+                    EmailMessage.objects.create(
+                        user=request.user,
+                        sender=from_email,
+                        receiver=recipient,
+                        message=body,  # Save HTML body as-is
+                        is_sent=True
+                    )
+
+                success_message = f'Email sent to {", ".join(valid_emails)}.'
+                if invalid_emails:
+                    success_message += f' Invalid emails skipped: {", ".join(invalid_emails)}.'
+                messages.success(request, success_message)
+                return redirect('chat', contact_email=valid_emails[0])
+
+            except Exception as e:
+                messages.error(request, f'Error sending email: {str(e)}')
                 return render(request, 'base/compose_email.html', {
                     'email': user_email,
                     'subject': subject,
-                    'body': body
+                    'body': body,
+                    'bios': bios,
+                    'edit_bio': edit_bio
                 })
 
-            # Send email with HTML body
-            from_email = settings.DEFAULT_FROM_EMAIL
-            email_message = DjangoEmailMessage(
-                subject=subject,
-                body=body,
-                from_email=from_email,
-                to=valid_emails,
-            )
-            email_message.content_subtype = 'html'  # Set content type to HTML
-            email_message.send(fail_silently=False)
-
-            # Save to DB
-            for recipient in valid_emails:
-                EmailMessage.objects.create(
-                    user=request.user,
-                    sender=from_email,
-                    receiver=recipient,
-                    message=body,  # Save HTML body as-is
-                    is_sent=True
-                )
-
-            success_message = f'Email sent to {", ".join(valid_emails)}.'
-            if invalid_emails:
-                success_message += f' Invalid emails skipped: {", ".join(invalid_emails)}.'
-            messages.success(request, success_message)
-            return redirect('chat', contact_email=valid_emails[0])
-
-        except Exception as e:
-            messages.error(request, f'Error sending email: {str(e)}')
-            return render(request, 'base/compose_email.html', {
-                'email': user_email,
-                'subject': subject,
-                'body': body
-            })
+        # Handle bio form submission
+        elif 'content' in request.POST:  # Check if bio form is submitted
+            content = request.POST.get('content', '').strip()
+            edit_id = request.POST.get('edit_id')
+            if content:
+                if len(content) <= 500:  # Validate max 500 characters
+                    if edit_id and edit_id.isdigit():  # Update existing bio
+                        bio = get_object_or_404(Bio, id=int(edit_id), user=request.user)
+                        bio.content = content
+                        bio.save()
+                        messages.success(request, "Bio updated successfully!")
+                    else:  # Add new bio
+                        Bio.objects.create(user=request.user, content=content)
+                        messages.success(request, "Bio added successfully!")
+                else:
+                    messages.error(request, "Bio must be 500 characters or less.")
+            else:
+                messages.error(request, "This field is required.")
+            
+            # Redirect to clean URL, preserving email if present
+            redirect_url = reverse('compose_email')
+            if 'email' in request.GET and request.GET.get('email'):
+                redirect_url += f"?email={request.GET.get('email')}"
+            return redirect(redirect_url)
 
     else:
         user_email = request.GET.get('email', '')
         context = {
             'email': user_email,
             'subject': '',
-            'body': ''
+            'body': '',
+            'bios': bios,
+            'edit_bio': edit_bio
         }
         return render(request, 'base/compose_email.html', context)
+
+@login_required
+def edit_bio(request, bio_id):
+    bio = get_object_or_404(Bio, id=bio_id, user=request.user)
+    redirect_url = reverse('compose_email') + f"?edit_id={bio.id}"
+    if 'email' in request.GET:
+        redirect_url += f"&email={request.GET.get('email')}"
+    return redirect(redirect_url)
+
+@login_required
+def delete_bio(request, bio_id):
+    bio = get_object_or_404(Bio, id=bio_id, user=request.user)  
+    if request.method == 'POST':
+        bio.delete()
+        return JsonResponse({'status': 'success', 'message': 'Bio deleted successfully!'})
+    return JsonResponse({'status': 'error', 'message': 'Invalid request method.'}, status=400)
+
 def extract_latest_reply(email_body):
     """Extract only the latest reply from email thread, excluding quoted content and signatures"""
     # Common patterns to identify quoted text or signatures

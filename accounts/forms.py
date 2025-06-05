@@ -3,6 +3,7 @@ from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.contrib.auth import authenticate
+from .models import *
 
 User = get_user_model()
 
@@ -90,3 +91,14 @@ class SuperUserCreationForm(UserCreationForm):
         if User.objects.filter(username=username).exists():
             raise ValidationError("This username is already taken.")
         return username
+class BioForm(forms.ModelForm):
+    class Meta:
+        model = Bio
+        fields = ['content']
+        widgets = {
+            'content': forms.Textarea(attrs={
+                'rows': 4,
+                'class': 'form-control',
+                'placeholder': 'Write your bio here (max 500 characters)',
+            })
+        }

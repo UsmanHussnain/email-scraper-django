@@ -14,3 +14,13 @@ class CustomUser(AbstractUser):
     
     def __str__(self):
         return self.email
+class Bio(models.Model):
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='bios')
+    content = models.TextField(max_length=500, help_text="Enter your bio (max 500 characters)")
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"Bio for {self.user.username} - {self.created_at.strftime('%Y-%m-%d')}"
+    
+    class Meta:
+        ordering = ['-created_at']
