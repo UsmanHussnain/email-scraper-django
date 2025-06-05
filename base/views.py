@@ -68,32 +68,47 @@ def display_emails(request):
             return render(request, 'base/email_display.html', {"error": "No file attached. Please upload a new Excel file."})
         if not file_path or not os.path.exists(file_path):
             return render(request, 'base/email_display.html', {"error": "No file attached. Please upload a new Excel file."})
+        
         df = pd.read_excel(file_path)
         df.columns = [col.strip().lower() for col in df.columns]
+        
+        # Stats calculation with string conversion to handle float/NaN
         stats = {
             'total': len(df),
-            'emails_found': sum(1 for _, row in df.iterrows() if '@' in str(row.get('emails', '')) and row.get('emails') != 'No Email'),
+            'emails_found': sum(1 for _, row in df.iterrows() if '@' in str(row.get('emails', '')) and str(row.get('emails', '')) != 'No Email'),
             'no_email': sum(1 for _, row in df.iterrows() if str(row.get('emails', '')).strip() == 'No Email'),
-            'contact_pages': sum(1 for _, row in df.iterrows() if 'http' in str(row.get('contact_url', '')).lower() and row.get('contact_url') != 'No Contact'),
+            'contact_pages': sum(1 for _, row in df.iterrows() if 'http' in str(row.get('contact_url', '')).lower() and str(row.get('contact_url', '')) != 'No Contact'),
             'no_contact': sum(1 for _, row in df.iterrows() if str(row.get('contact_url', '')).strip() == 'No Contact')
         }
+        
         email_list = []
         for _, row in df.iterrows():
-            website = row.get('website', '').strip()
-            emails = row.get('emails', 'No Email').strip()
-            contact_url = row.get('contact_url', 'No Contact').strip()
-            domain_age = row.get('domain age', 'N/A').strip()
+            website = str(row.get('website', '')).strip()
+            emails = str(row.get('emails', 'No Email')).strip()
+            contact_url = str(row.get('contact_url', 'No Contact')).strip()
+            domain_age = str(row.get('domain age', 'N/A')).strip()
+            
             if website:
                 if not website.startswith(('http://', 'https://')):
                     website = f'http://{website}'
+                
+                # Check if there is any chat history with this email
+                email_has_chat = False
+                if emails and emails != 'No Email':
+                    email_has_chat = EmailMessage.objects.filter(
+                        Q(user=request.user, receiver=emails) | Q(user=request.user, sender=emails)
+                    ).exists()
+                
                 email_list.append({
                     'website': website,
                     'emails': emails,
                     'contact_url': contact_url,
                     'domain_age': domain_age,
-                    'original_website': row['website'],
-                    'is_contact_url': 'http' in contact_url.lower() and contact_url != 'No Contact'
+                    'original_website': str(row.get('website', '')),
+                    'is_contact_url': 'http' in contact_url.lower() and contact_url != 'No Contact',
+                    'email_has_chat': email_has_chat  # New flag to check chat history
                 })
+        
         download_url = os.path.join(settings.MEDIA_URL, (selected_file_obj.file.name if selected_file else latest_file.file.name)).replace('\\', '/')
         context = {
             "email_list": email_list,

@@ -5,14 +5,19 @@ import requests
 import whois
 from playwright.async_api import async_playwright
 import pandas as pd
-from concurrent.futures import ThreadPoolExecutor
-import multiprocessing
-from urllib.parse import urljoin
+from concurrent.futures import ProcessPoolExecutor
+from urllib.parse import urljoin, urlparse
+from functools import lru_cache
+import logging
+import validators
+
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Constants
 EMAIL_PATTERN = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
-TIMEOUT = 100000  # 100 seconds
-MAX_WORKERS = multiprocessing.cpu_count() * 2
+TIMEOUT = 30000  # 30 seconds
+BATCH_SIZE = 50  # Process URLs in batches
 CONTACT_KEYWORDS = ['contact', 'about', 'support', 'help', 'mailto', 'reach', 'connect']
 CONTACT_PAGE = ['contact', 'contact-us', 'contactus']
 EXCLUDED_EMAIL_PATTERNS = [
@@ -49,8 +54,9 @@ def extract_emails_from_text(text):
     emails = set(re.findall(EMAIL_PATTERN, text, re.IGNORECASE))
     return set(email for email in emails if is_valid_email(email))
 
+@lru_cache(maxsize=1000)
 def get_domain_age(domain):
-    """Fetch domain age using whois."""
+    """Fetch domain age using whois with caching."""
     try:
         w = whois.whois(domain)
         if w.creation_date:
@@ -59,11 +65,11 @@ def get_domain_age(domain):
             return f"{age} years" if age > 0 else "Less than a year"
         return "Unknown"
     except Exception as e:
-        print(f"WHOIS error for {domain}: {e}")
+        logging.error(f"WHOIS error for {domain}: {e}")
         return "Unknown"
 
 async def find_clickable_contact_links(page, base_url):
-    """Find clickable contact links on the page with improved logic."""
+    """Find clickable contact links on the page."""
     try:
         links = await page.query_selector_all('a')
         contact_links = []
@@ -83,54 +89,52 @@ async def find_clickable_contact_links(page, base_url):
                     if href != base_url and href != base_url + '/':
                         contact_links.append(href)
             except Exception as e:
-                print(f"Error processing link: {e}")
+                logging.error(f"Error processing link: {e}")
                 continue
         return list(set(contact_links))
     except Exception as e:
-        print(f"Error finding contact links: {e}")
+        logging.error(f"Error finding contact links: {e}")
         return []
 
 async def scrape_contact_page(page, contact_url):
     """Scrape a contact page for emails."""
     try:
-        await page.goto(contact_url, timeout=TIMEOUT/2, wait_until="domcontentloaded")
+        await page.goto(contact_url, timeout=TIMEOUT, wait_until="domcontentloaded")
         content = await page.content()
         emails = extract_emails_from_text(content)
         return list(emails) if emails else None
     except Exception as e:
-        print(f"Error scraping contact page {contact_url}: {e}")
+        logging.error(f"Error scraping contact page {contact_url}: {e}")
         return None
 
-async def fetch_with_playwright(url):
-    """Fetch website content using Playwright with enhanced contact link detection."""
+async def fetch_with_playwright(url, browser):
+    """Fetch website content using Playwright."""
     try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-                ignore_https_errors=True
-            )
-            page = await context.new_page()
-            try:
-                await page.goto(url, timeout=TIMEOUT, wait_until="domcontentloaded")
-                content = await page.content()
-                emails = extract_emails_from_text(content)
-                contact_urls = await find_clickable_contact_links(page, url)
-                for contact_url in contact_urls[:3]:
-                    try:
-                        contact_emails = await scrape_contact_page(page, contact_url)
-                        if contact_emails:
-                            emails.update(contact_emails)
-                    except:
-                        continue
-                return {
-                    'emails': list(emails) if emails else None,
-                    'contact_url': contact_urls[0] if contact_urls else None
-                }
-            finally:
-                await browser.close()
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            ignore_https_errors=True
+        )
+        page = await context.new_page()
+        try:
+            await page.goto(url, timeout=TIMEOUT, wait_until="domcontentloaded")
+            content = await page.content()
+            emails = extract_emails_from_text(content)
+            contact_urls = await find_clickable_contact_links(page, url)
+            for contact_url in contact_urls[:3]:
+                try:
+                    contact_emails = await scrape_contact_page(page, contact_url)
+                    if contact_emails:
+                        emails.update(contact_emails)
+                except:
+                    continue
+            return {
+                'emails': list(emails) if emails else None,
+                'contact_url': contact_urls[0] if contact_urls else None
+            }
+        finally:
+            await context.close()
     except Exception as e:
-        print(f"Playwright error for {url}: {e}")
+        logging.error(f"Playwright error for {url}: {e}")
         return {'emails': None, 'contact_url': None}
 
 def fetch_with_requests(url):
@@ -148,37 +152,52 @@ def fetch_with_requests(url):
             'contact_url': None
         }
     except Exception as e:
-        print(f"Requests error for {url}: {e}")
+        logging.error(f"Requests error for {url}: {e}")
         return {'emails': None, 'contact_url': None}
 
-async def extract_emails(url):
-    """Hybrid email extraction with separate email and contact URL handling."""
-    if not url.startswith(('http://', 'https://')):
-        url = f'http://{url}'
-    domain = url.split('//')[-1].split('/')[0]
+def clean_url(url):
+    """Clean and validate URL."""
+    url = url.strip()
+    # Remove any invalid characters
+    url = re.sub(r'[^\x00-\x7F]+', '', url)
+    # Remove leading/trailing spaces or invalid chars
+    url = url.strip(' /\\')
+    if not url:
+        return None
+    # Validate URL format
+    if not validators.domain(url) and not validators.url(url):
+        return None
+    return url
+
+async def try_url_with_protocols(original_url, browser):
+    """Try URL with both http and https protocols."""
+    cleaned_url = clean_url(original_url)
+    if not cleaned_url:
+        return original_url, "Error: Invalid URL", "No Contact", "N/A", False, False
+
+    protocols = ['https://', 'http://']
+    result = {'emails': None, 'contact_url': None}
+    domain = urlparse(cleaned_url).netloc or cleaned_url
     domain_age = get_domain_age(domain)
-    result = fetch_with_requests(url)
-    contact_urls = []
-    if not result['emails']:
-        playwright_result = await fetch_with_playwright(url)
-        result['emails'] = playwright_result['emails']
-        contact_urls = [playwright_result['contact_url']] if playwright_result['contact_url'] else []
-    else:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-                ignore_https_errors=True
-            )
-            page = await context.new_page()
-            try:
-                await page.goto(url, timeout=TIMEOUT, wait_until="domcontentloaded")
-                contact_urls = await find_clickable_contact_links(page, url)
-            finally:
-                await browser.close()
+
+    for protocol in protocols:
+        url = protocol + cleaned_url if not cleaned_url.startswith(('http://', 'https://')) else cleaned_url
+        # Try requests first for speed
+        result = fetch_with_requests(url)
+        if result['emails']:
+            break
+        # If no emails found, try playwright
+        result = await fetch_with_playwright(url, browser)
+        if result['emails']:
+            break
+
     email_value = ', '.join(result['emails']) if result['emails'] else "No Email"
-    contact_value = contact_urls[0] if contact_urls else "No Contact"
-    return url, email_value, contact_value, domain_age, bool(result['emails']), bool(contact_urls)
+    contact_value = result['contact_url'] if result['contact_url'] else "No Contact"
+    return original_url, email_value, contact_value, domain_age, bool(result['emails']), bool(result['contact_url'])
+
+async def process_batch(urls, browser):
+    """Process a batch of URLs."""
+    return await asyncio.gather(*[try_url_with_protocols(url, browser) for url in urls], return_exceptions=True)
 
 async def process_excel(file_path):
     """Process Excel file with optimized parallel processing."""
@@ -193,34 +212,49 @@ async def process_excel(file_path):
             df['contact_url'] = 'No Contact'
         if 'domain age' not in df.columns:
             df['domain age'] = 'N/A'
+        
         urls = df['website'].astype(str).tolist()
-        results = await asyncio.gather(*[extract_emails(url) for url in urls], return_exceptions=True)
         stats = {
-            'total': len(results),
+            'total': len(urls),
             'emails_found': 0,
             'contact_pages': 0,
             'no_contact': 0
         }
+        
+        results = []
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            try:
+                # Process URLs in batches
+                for i in range(0, len(urls), BATCH_SIZE):
+                    batch_urls = urls[i:i + BATCH_SIZE]
+                    batch_results = await process_batch(batch_urls, browser)
+                    results.extend(batch_results)
+                    logging.info(f"Processed batch {i // BATCH_SIZE + 1}/{len(urls) // BATCH_SIZE + 1}")
+            finally:
+                await browser.close()
+        
         for idx, result in enumerate(results):
             if isinstance(result, Exception):
-                print(f"Error processing URL {urls[idx]}: {result}")
+                logging.error(f"Error processing URL {urls[idx]}: {result}")
                 df.loc[df['website'] == urls[idx], 'emails'] = "Error"
                 df.loc[df['website'] == urls[idx], 'contact_url'] = "No Contact"
                 df.loc[df['website'] == urls[idx], 'domain age'] = "N/A"
                 stats['no_contact'] += 1
                 continue
-            url, email_value, contact_value, domain_age, has_email, has_contact = result
-            df.loc[df['website'] == url, 'emails'] = email_value
-            df.loc[df['website'] == url, 'contact_url'] = contact_value
-            df.loc[df['website'] == url, 'domain age'] = domain_age
+            original_url, email_value, contact_value, domain_age, has_email, has_contact = result
+            df.loc[df['website'] == original_url, 'emails'] = email_value
+            df.loc[df['website'] == original_url, 'contact_url'] = contact_value
+            df.loc[df['website'] == original_url, 'domain age'] = domain_age
             if has_email:
                 stats['emails_found'] += 1
             if has_contact:
                 stats['contact_pages'] += 1
             else:
                 stats['no_contact'] += 1
+        
         df.to_excel(file_path, index=False)
         return file_path, stats
     except Exception as e:
-        print(f"Excel processing error: {e}")
+        logging.error(f"Excel processing error: {e}")
         return None, None
