@@ -728,6 +728,7 @@ def extract_base64_images(html_content):
             continue
     
     return html_content, images
+
 @login_required
 def chat(request, contact_email=None):
     if contact_email == 'new':
@@ -858,10 +859,11 @@ def chat(request, contact_email=None):
         new_message = request.POST.get('message', '').strip()
         attachment = request.FILES.get('attachment') if 'attachment' in request.FILES else None
 
-        # Normalize message to remove extra newlines and spacing
-        new_message = re.sub(r'<br>\s*<br>|<p>\s*</p>|<p>\s*(?:<br>)?\s*</p>', '', new_message)
-        new_message = re.sub(r'\n\s*\n+', '\n', new_message.replace('<br>', '\n'))
-        new_message = new_message.replace('\n', '<br>').strip()
+        # Normalize message to remove excessive newlines and spacing
+        new_message = re.sub(r'<br>\s*<br>|<p>\s*</p>|<p>\s*(?:<br>)?\s*</p>', '<br>', new_message)
+        new_message = re.sub(r'\n\s*\n+', '<br>', new_message.replace('<br>', '\n'))
+        new_message = re.sub(r'\s{2,}', ' ', new_message)  # Remove extra spaces
+        new_message = new_message.strip()
 
         try:
             pakistan_tz = pytz.timezone('Asia/Karachi')

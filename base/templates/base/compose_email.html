@@ -1,4 +1,5 @@
 {% extends 'base/baseIndex.html' %}
+{% load email_filters %}
 
 {% block content %}
 <div class="container py-5">
@@ -190,7 +191,7 @@
         });
 
         // Load initial body content into Quill editor (if any, e.g., after form validation error)
-        quill.root.innerHTML = `{{ body|safe }}`;
+        quill.root.innerHTML = `{{ body|normalize_spacing|safe }}`;
 
         // Handle dropdown visibility for Quill toolbar
         function handleDropdownVisibility() {
@@ -230,7 +231,7 @@
             showToast("{{ message|escapejs }}", "{{ message.tags }}");
         {% endfor %}
 
-        // Handle form submission to capture Quill content
+        // Handle form submission to capture Quill content and normalize spacing
         $('#composeForm').submit(function(e) {
             const message = quill.root.innerHTML.trim();
             if (!message || message === '<p><br></p>') {
@@ -238,7 +239,10 @@
                 e.preventDefault();
                 return false;
             }
-            $('#bodyInput').val(message);
+            // Normalize spacing before saving
+            let normalizedMessage = message.replace(/<br>\s*<br>/g, '<br>').replace(/\n\s*\n/g, '\n');
+            normalizedMessage = normalizedMessage.replace(/\s{2,}/g, ' ').trim();
+            $('#bodyInput').val(normalizedMessage);
         });
 
         // Handle "Compose (AI)" button click
@@ -252,7 +256,10 @@
                 type: 'GET',
                 success: function(response) {
                     if (!response.error && response.body) {
-                        quill.root.innerHTML = response.body;
+                        // Normalize AI-generated content
+                        let normalizedBody = response.body.replace(/<br>\s*<br>/g, '<br>').replace(/\n\s*\n/g, '\n');
+                        normalizedBody = normalizedBody.replace(/\s{2,}/g, ' ').trim();
+                        quill.root.innerHTML = normalizedBody;
                         $('#subject').val(response.subject);
                         quill.focus();
                         showToast('Email body generated successfully!', 'success');
